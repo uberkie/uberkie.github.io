@@ -4,8 +4,8 @@
 
     {
       "model": "DS-2AE4225TI-D 1080P 25X PTZ",
-      "price": "5117.50"
-      "img" : "https://www.hikvision.com/content/dam/hikvision/products/S000000001/S000000132/S000001008/S000001009/OFR000009/M000005835/images/CgFBIl1ShjyATeiFAAofbbC0XmA329.png.thumb.1280.1280.png?f=webp width="300" height="200"",
+      "price": "5117.50",
+      "img" : "https://www.hikvision.com/content/dam/hikvision/products/S000000001/S000000132/S000001008/S000001009/OFR000009/M000005835/images/CgFBIl1ShjyATeiFAAofbbC0XmA329.png.thumb.1280.1280.png?f=webp width=300 height=200"},
     {
       "model" : "DS-2DE3A400BW-DE(F1)(S5)COLORV",
       "price" : "3556.8"},
