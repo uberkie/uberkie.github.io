@@ -1,0 +1,10 @@
+{
+      "step": 3,
+      "user_follow_up": "How can I handle negative inputs?",
+      "ai_response": {
+        "suggestion": "You can add a condition to check if the input is negative and return a message indicating that the factorial of a negative number doesn't exist.",
+        "code_snippet": "def factorial(n):\n    if n < 0:\n        return 'Factorial does not exist for negative numbers'\n    result = 1\n    for i in range(2, n + 1):\n        result *= i\n    return result",
+        "explanation": "The added 'if' statement checks for negative 'n'. If 'n' is negative, it returns an explanatory message. Otherwise, it proceeds as before."
+      }
+    },
+   
