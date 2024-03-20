@@ -1,0 +1,14 @@
+ {
+      "step": 4,
+      "user_query": "Can you optimize it for large numbers?",
+      "ai_response": {
+        "optimization_note": "For large numbers, consider using libraries like 'math' for efficiency, as Python's built-in functions are optimized for performance.",
+        "code_snippet": "import math\n\ndef factorial(n):\n    if n < 0:\n        return 'Factorial does not exist for negative numbers'\n    return math.factorial(n)",
+        "explanation": "This version imports Python's 'math' library and uses its 'factorial' function, which is efficient for large numbers."
+      }
+    }
+  ],
+  "additional_resources": {
+    "documentation_links": ["https://docs.python.org/3/library/math.html"],
+    "external_libraries": ["math"]
+  }
