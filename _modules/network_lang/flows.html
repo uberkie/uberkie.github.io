@@ -1,0 +1,1337 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>network_lang.flows &#8212; network-lang 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=12dfc556" />
+    <script src="../../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for network_lang.flows</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">ipaddress</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Iterable</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">Mapping</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.reconcile</span><span class="w"> </span><span class="kn">import</span> <span class="n">DeviceRecord</span><span class="p">,</span> <span class="n">ReconciliationReport</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.topology</span><span class="w"> </span><span class="kn">import</span> <span class="n">AttachmentRecord</span>
+
+<span class="n">FlowEndpoint</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">,</span> <span class="s2">&quot;dst&quot;</span><span class="p">,</span> <span class="s2">&quot;both&quot;</span><span class="p">]</span>
+<span class="n">FlowReconAction</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;match_or_score&quot;</span><span class="p">,</span> <span class="s2">&quot;report&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;infrastructure&quot;</span><span class="p">]</span>
+<span class="n">FlowDeviceClass</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span>
+    <span class="s2">&quot;public_external&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;private_internal&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;exporter&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;known_infrastructure&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;customer_endpoint&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;unknown_internal&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ignored_peer&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+<span class="n">FlowDeviceScope</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span>
+    <span class="s2">&quot;all&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;internal&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;external&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ignored&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;managed&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;customer&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;infrastructure&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;unknown_internal&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+<span class="n">FLOW_RECON_POLICY</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="n">FlowDeviceClass</span><span class="p">,</span> <span class="n">FlowReconAction</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;customer_endpoint&quot;</span><span class="p">:</span> <span class="s2">&quot;match_or_score&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;unknown_internal&quot;</span><span class="p">:</span> <span class="s2">&quot;report&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;private_internal&quot;</span><span class="p">:</span> <span class="s2">&quot;report&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;public_external&quot;</span><span class="p">:</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ignored_peer&quot;</span><span class="p">:</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;exporter&quot;</span><span class="p">:</span> <span class="s2">&quot;infrastructure&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;known_infrastructure&quot;</span><span class="p">:</span> <span class="s2">&quot;infrastructure&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<div class="viewcode-block" id="FlowObservation">
+<a class="viewcode-back" href="../../api.html#network_lang.FlowObservation">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowObservation</span><span class="p">:</span>
+    <span class="n">exporter</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">src_host</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">dst_host</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">ingress_interface</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">egress_interface</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">protocol</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">src_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">dst_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="nb">bytes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">packets</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">window_start</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">window_end</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;netflow&quot;</span>
+    <span class="n">src_mac</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">dst_mac</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">src_identifiers</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+    <span class="n">dst_identifiers</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+    <span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;exporter&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">exporter</span><span class="p">,</span>
+            <span class="s2">&quot;src_host&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">src_host</span><span class="p">,</span>
+            <span class="s2">&quot;dst_host&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">dst_host</span><span class="p">,</span>
+            <span class="s2">&quot;ingress_interface&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">ingress_interface</span><span class="p">,</span>
+            <span class="s2">&quot;egress_interface&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">egress_interface</span><span class="p">,</span>
+            <span class="s2">&quot;protocol&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">protocol</span><span class="p">,</span>
+            <span class="s2">&quot;src_port&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">src_port</span><span class="p">,</span>
+            <span class="s2">&quot;dst_port&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">dst_port</span><span class="p">,</span>
+            <span class="s2">&quot;bytes&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">bytes</span><span class="p">,</span>
+            <span class="s2">&quot;packets&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">packets</span><span class="p">,</span>
+            <span class="s2">&quot;window_start&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">window_start</span><span class="p">,</span>
+            <span class="s2">&quot;window_end&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">window_end</span><span class="p">,</span>
+            <span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">source</span><span class="p">,</span>
+            <span class="s2">&quot;src_mac&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">src_mac</span><span class="p">,</span>
+            <span class="s2">&quot;dst_mac&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">dst_mac</span><span class="p">,</span>
+            <span class="s2">&quot;src_identifiers&quot;</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">src_identifiers</span><span class="p">),</span>
+            <span class="s2">&quot;dst_identifiers&quot;</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dst_identifiers</span><span class="p">),</span>
+            <span class="s2">&quot;metadata&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">metadata</span><span class="p">,</span>
+        <span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="FlowTargetResolution">
+<a class="viewcode-back" href="../../api.html#network_lang.FlowTargetResolution">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowTargetResolution</span><span class="p">:</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">host</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">network_device</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">interface</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">direction</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">confidence</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">observation</span><span class="p">:</span> <span class="n">FlowObservation</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;target&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">target</span><span class="p">,</span>
+            <span class="s2">&quot;host&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="p">,</span>
+            <span class="s2">&quot;network_device&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">network_device</span><span class="p">,</span>
+            <span class="s2">&quot;interface&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">interface</span><span class="p">,</span>
+            <span class="s2">&quot;direction&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">direction</span><span class="p">,</span>
+            <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">confidence</span><span class="p">,</span>
+            <span class="s2">&quot;observation&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">observation</span><span class="o">.</span><span class="n">to_dict</span><span class="p">(),</span>
+        <span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="FlowExpectation">
+<a class="viewcode-back" href="../../api.html#network_lang.FlowExpectation">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowExpectation</span><span class="p">:</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">network_device</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">interface</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">envelope</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;target&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">target</span><span class="p">,</span>
+            <span class="s2">&quot;network_device&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">network_device</span><span class="p">,</span>
+            <span class="s2">&quot;interface&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">interface</span><span class="p">,</span>
+            <span class="s2">&quot;envelope&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">envelope</span><span class="p">,</span>
+        <span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="FlowSignalCheck">
+<a class="viewcode-back" href="../../api.html#network_lang.FlowSignalCheck">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowSignalCheck</span><span class="p">:</span>
+    <span class="n">signal</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">status</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">expected</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="n">observed</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="n">severity</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">score</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;signal&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">signal</span><span class="p">,</span>
+            <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">status</span><span class="p">,</span>
+            <span class="s2">&quot;expected&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">expected</span><span class="p">,</span>
+            <span class="s2">&quot;observed&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">observed</span><span class="p">,</span>
+            <span class="s2">&quot;severity&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">severity</span><span class="p">,</span>
+            <span class="s2">&quot;score&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">score</span><span class="p">,</span>
+            <span class="s2">&quot;reason&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">reason</span><span class="p">,</span>
+        <span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="FlowEnvelopeReport">
+<a class="viewcode-back" href="../../api.html#network_lang.FlowEnvelopeReport">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowEnvelopeReport</span><span class="p">:</span>
+    <span class="n">decision</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">identity_confidence</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">topology_confidence</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">health_score</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">action_safety</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">summary</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">suggested_cause</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">action_safety_reason</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">evidence</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FlowSignalCheck</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">resolution</span><span class="p">:</span> <span class="n">FlowTargetResolution</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">ok</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">decision</span> <span class="o">==</span> <span class="s2">&quot;safe&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;ok&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">ok</span><span class="p">,</span>
+            <span class="s2">&quot;decision&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">decision</span><span class="p">,</span>
+            <span class="s2">&quot;identity_confidence&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">identity_confidence</span><span class="p">,</span>
+            <span class="s2">&quot;topology_confidence&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">topology_confidence</span><span class="p">,</span>
+            <span class="s2">&quot;health_score&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">health_score</span><span class="p">,</span>
+            <span class="s2">&quot;action_safety&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">action_safety</span><span class="p">,</span>
+            <span class="s2">&quot;summary&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">summary</span><span class="p">,</span>
+            <span class="s2">&quot;suggested_cause&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">suggested_cause</span><span class="p">,</span>
+            <span class="s2">&quot;action_safety_reason&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">action_safety_reason</span><span class="p">,</span>
+            <span class="s2">&quot;evidence&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">check</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">for</span> <span class="n">check</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">evidence</span><span class="p">],</span>
+            <span class="s2">&quot;resolution&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">resolution</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">resolution</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="FlowReconFinding">
+<a class="viewcode-back" href="../../api.html#network_lang.FlowReconFinding">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowReconFinding</span><span class="p">:</span>
+    <span class="n">host</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">flow_class</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">action</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">summary</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">device</span><span class="p">:</span> <span class="n">DeviceRecord</span>
+    <span class="n">expected</span><span class="p">:</span> <span class="n">DeviceRecord</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">score</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;host&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="p">,</span>
+            <span class="s2">&quot;flow_class&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow_class</span><span class="p">,</span>
+            <span class="s2">&quot;action&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">action</span><span class="p">,</span>
+            <span class="s2">&quot;summary&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">summary</span><span class="p">,</span>
+            <span class="s2">&quot;device&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">to_dict</span><span class="p">(),</span>
+            <span class="s2">&quot;expected&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">expected</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">expected</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;score&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">score</span><span class="p">,</span>
+        <span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="FlowReconPolicyReport">
+<a class="viewcode-back" href="../../api.html#network_lang.FlowReconPolicyReport">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowReconPolicyReport</span><span class="p">:</span>
+    <span class="n">matched_customer_endpoints</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">unknown_internal_hosts</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">infrastructure</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">external_peers</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">ignored_peers</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">missing_expected</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">DeviceRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">ok</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown_internal_hosts</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">missing_expected</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">exit_code</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">1</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown_internal_hosts</span> <span class="k">else</span> <span class="mi">0</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;ok&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">ok</span><span class="p">,</span>
+            <span class="s2">&quot;exit_code&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">exit_code</span><span class="p">,</span>
+            <span class="s2">&quot;matched_customer_endpoints&quot;</span><span class="p">:</span> <span class="p">[</span>
+                <span class="n">finding</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">for</span> <span class="n">finding</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">matched_customer_endpoints</span>
+            <span class="p">],</span>
+            <span class="s2">&quot;unknown_internal_hosts&quot;</span><span class="p">:</span> <span class="p">[</span>
+                <span class="n">finding</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">for</span> <span class="n">finding</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown_internal_hosts</span>
+            <span class="p">],</span>
+            <span class="s2">&quot;infrastructure&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">finding</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">for</span> <span class="n">finding</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">infrastructure</span><span class="p">],</span>
+            <span class="s2">&quot;external_peers&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">finding</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">for</span> <span class="n">finding</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">external_peers</span><span class="p">],</span>
+            <span class="s2">&quot;ignored_peers&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">finding</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">for</span> <span class="n">finding</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">ignored_peers</span><span class="p">],</span>
+            <span class="s2">&quot;missing_expected&quot;</span><span class="p">:</span> <span class="p">[</span>
+                <span class="n">device</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">missing_expected</span>
+            <span class="p">],</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_text</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="n">sections</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="sa">f</span><span class="s2">&quot;Unknown internal hosts observed: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">unknown_internal_hosts</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="sa">f</span><span class="s2">&quot;Matched customer endpoints: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">matched_customer_endpoints</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="sa">f</span><span class="s2">&quot;Infrastructure observed: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">infrastructure</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="sa">f</span><span class="s2">&quot;External peers ignored: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">external_peers</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="p">]</span>
+            <span class="p">)</span>
+        <span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown_internal_hosts</span><span class="p">:</span>
+            <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">_finding_section</span><span class="p">(</span>
+                    <span class="s2">&quot;Unknown internal hosts observed&quot;</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">unknown_internal_hosts</span><span class="p">,</span>
+                    <span class="n">use_summary</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">matched_customer_endpoints</span><span class="p">:</span>
+            <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">_finding_section</span><span class="p">(</span>
+                    <span class="s2">&quot;Matched customer endpoints&quot;</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">matched_customer_endpoints</span><span class="p">,</span>
+                    <span class="n">detail</span><span class="o">=</span><span class="s2">&quot;matched&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">infrastructure</span><span class="p">:</span>
+            <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">_finding_section</span><span class="p">(</span>
+                    <span class="s2">&quot;Infrastructure observed&quot;</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">infrastructure</span><span class="p">,</span>
+                    <span class="n">detail</span><span class="o">=</span><span class="s2">&quot;infrastructure&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">missing_expected</span><span class="p">:</span>
+            <span class="n">sections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_missing_section</span><span class="p">(</span><span class="s2">&quot;Missing expected devices&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">missing_expected</span><span class="p">))</span>
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sections</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="flow_observations_to_devices">
+<a class="viewcode-back" href="../../api.html#network_lang.flow_observations_to_devices">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">flow_observations_to_devices</span><span class="p">(</span>
+    <span class="n">flows</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">FlowObservation</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+    <span class="n">endpoint</span><span class="p">:</span> <span class="n">FlowEndpoint</span> <span class="o">=</span> <span class="s2">&quot;src&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">DeviceRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Turn flow observations into ``DeviceRecord`` endpoint evidence.&quot;&quot;&quot;</span>
+    <span class="n">devices</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DeviceRecord</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">flow</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_flow</span><span class="p">(</span><span class="n">record</span><span class="p">)</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">flows</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">endpoint</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;src&quot;</span><span class="p">,</span> <span class="s2">&quot;both&quot;</span><span class="p">}:</span>
+            <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_flow_device</span><span class="p">(</span><span class="n">flow</span><span class="p">,</span> <span class="s2">&quot;src&quot;</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">endpoint</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;dst&quot;</span><span class="p">,</span> <span class="s2">&quot;both&quot;</span><span class="p">}:</span>
+            <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_flow_device</span><span class="p">(</span><span class="n">flow</span><span class="p">,</span> <span class="s2">&quot;dst&quot;</span><span class="p">))</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">devices</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="load_flow_devices">
+<a class="viewcode-back" href="../../api.html#network_lang.load_flow_devices">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_flow_devices</span><span class="p">(</span>
+    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">scope</span><span class="p">:</span> <span class="n">FlowDeviceScope</span> <span class="o">=</span> <span class="s2">&quot;internal&quot;</span><span class="p">,</span>
+    <span class="n">exclude_exporters</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">include_external_peers</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">known_infrastructure</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+    <span class="n">customer_hosts</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+    <span class="n">internal_networks</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">DeviceRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Load collector JSONL and return classified flow endpoint devices.&quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">handle</span><span class="p">:</span>
+        <span class="n">records</span> <span class="o">=</span> <span class="p">[</span><span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">handle</span> <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span>
+    <span class="k">return</span> <span class="n">flow_records_to_devices</span><span class="p">(</span>
+        <span class="n">records</span><span class="p">,</span>
+        <span class="n">scope</span><span class="o">=</span><span class="n">scope</span><span class="p">,</span>
+        <span class="n">exclude_exporters</span><span class="o">=</span><span class="n">exclude_exporters</span><span class="p">,</span>
+        <span class="n">include_external_peers</span><span class="o">=</span><span class="n">include_external_peers</span><span class="p">,</span>
+        <span class="n">known_infrastructure</span><span class="o">=</span><span class="n">known_infrastructure</span><span class="p">,</span>
+        <span class="n">customer_hosts</span><span class="o">=</span><span class="n">customer_hosts</span><span class="p">,</span>
+        <span class="n">internal_networks</span><span class="o">=</span><span class="n">internal_networks</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="flow_records_to_devices">
+<a class="viewcode-back" href="../../api.html#network_lang.flow_records_to_devices">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">flow_records_to_devices</span><span class="p">(</span>
+    <span class="n">records</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">DeviceRecord</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">scope</span><span class="p">:</span> <span class="n">FlowDeviceScope</span> <span class="o">=</span> <span class="s2">&quot;internal&quot;</span><span class="p">,</span>
+    <span class="n">exclude_exporters</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">include_external_peers</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">known_infrastructure</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+    <span class="n">customer_hosts</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+    <span class="n">internal_networks</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">DeviceRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Classify and filter flow endpoint device records before reconciliation.&quot;&quot;&quot;</span>
+    <span class="n">devices</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DeviceRecord</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">seen_hosts</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">records</span><span class="p">:</span>
+        <span class="n">device</span> <span class="o">=</span> <span class="n">_device_record</span><span class="p">(</span><span class="n">record</span><span class="p">)</span>
+        <span class="n">flow_class</span> <span class="o">=</span> <span class="n">classify_flow_device</span><span class="p">(</span>
+            <span class="n">device</span><span class="p">,</span>
+            <span class="n">known_infrastructure</span><span class="o">=</span><span class="n">known_infrastructure</span><span class="p">,</span>
+            <span class="n">customer_hosts</span><span class="o">=</span><span class="n">customer_hosts</span><span class="p">,</span>
+            <span class="n">internal_networks</span><span class="o">=</span><span class="n">internal_networks</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">_include_flow_class</span><span class="p">(</span>
+            <span class="n">flow_class</span><span class="p">,</span>
+            <span class="n">scope</span><span class="p">,</span>
+            <span class="n">exclude_exporters</span><span class="o">=</span><span class="n">exclude_exporters</span><span class="p">,</span>
+            <span class="n">include_external_peers</span><span class="o">=</span><span class="n">include_external_peers</span><span class="p">,</span>
+        <span class="p">):</span>
+            <span class="k">continue</span>
+
+        <span class="n">host_key</span> <span class="o">=</span> <span class="n">_normalize_host</span><span class="p">(</span><span class="n">device</span><span class="o">.</span><span class="n">host</span><span class="p">)</span> <span class="k">if</span> <span class="n">device</span><span class="o">.</span><span class="n">host</span> <span class="k">else</span> <span class="n">device</span><span class="o">.</span><span class="n">label</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">host_key</span> <span class="ow">in</span> <span class="n">seen_hosts</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">seen_hosts</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">host_key</span><span class="p">)</span>
+        <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_device_with_flow_class</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">flow_class</span><span class="p">))</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">devices</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="classify_flow_device">
+<a class="viewcode-back" href="../../api.html#network_lang.classify_flow_device">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">classify_flow_device</span><span class="p">(</span>
+    <span class="n">record</span><span class="p">:</span> <span class="n">DeviceRecord</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">known_infrastructure</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+    <span class="n">customer_hosts</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+    <span class="n">internal_networks</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FlowDeviceClass</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Classify one flow endpoint as internal, external, exporter, or ignored.&quot;&quot;&quot;</span>
+    <span class="n">device</span> <span class="o">=</span> <span class="n">_device_record</span><span class="p">(</span><span class="n">record</span><span class="p">)</span>
+    <span class="n">host</span> <span class="o">=</span> <span class="n">_normalize_host</span><span class="p">(</span><span class="n">device</span><span class="o">.</span><span class="n">host</span><span class="p">)</span> <span class="k">if</span> <span class="n">device</span><span class="o">.</span><span class="n">host</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">metadata</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">metadata</span> <span class="ow">or</span> <span class="p">{}</span>
+    <span class="n">exporter</span> <span class="o">=</span> <span class="n">_string</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;exporter&quot;</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="n">exporter</span> <span class="ow">and</span> <span class="n">_same_host</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">exporter</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;exporter&quot;</span>
+    <span class="k">if</span> <span class="n">_host_in_values</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">known_infrastructure</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;known_infrastructure&quot;</span>
+    <span class="k">if</span> <span class="n">_host_in_values</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">customer_hosts</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;customer_endpoint&quot;</span>
+    <span class="k">if</span> <span class="n">_host_in_networks</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">internal_networks</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;private_internal&quot;</span>
+    <span class="k">if</span> <span class="n">_is_ignored_peer_host</span><span class="p">(</span><span class="n">host</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;ignored_peer&quot;</span>
+    <span class="k">if</span> <span class="n">_is_private_host</span><span class="p">(</span><span class="n">host</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;unknown_internal&quot;</span>
+    <span class="k">if</span> <span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;direction&quot;</span><span class="p">)</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;src&quot;</span><span class="p">,</span> <span class="s2">&quot;dst&quot;</span><span class="p">}:</span>
+        <span class="k">return</span> <span class="s2">&quot;public_external&quot;</span>
+    <span class="k">return</span> <span class="s2">&quot;ignored_peer&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="apply_flow_recon_policy">
+<a class="viewcode-back" href="../../api.html#network_lang.apply_flow_recon_policy">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">apply_flow_recon_policy</span><span class="p">(</span>
+    <span class="n">report</span><span class="p">:</span> <span class="n">ReconciliationReport</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">policy</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="n">FlowDeviceClass</span><span class="p">,</span> <span class="n">FlowReconAction</span><span class="p">]</span> <span class="o">=</span> <span class="n">FLOW_RECON_POLICY</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FlowReconPolicyReport</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Bucket a device reconciliation report into operator-facing flow findings.&quot;&quot;&quot;</span>
+    <span class="n">matched_customer_endpoints</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">reported</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">infrastructure</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">external_peers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">ignored_peers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">match</span> <span class="ow">in</span> <span class="n">report</span><span class="o">.</span><span class="n">matches</span><span class="p">:</span>
+        <span class="n">_route_flow_finding</span><span class="p">(</span>
+            <span class="n">_flow_finding</span><span class="p">(</span><span class="n">match</span><span class="o">.</span><span class="n">observed</span><span class="p">,</span> <span class="n">policy</span><span class="p">,</span> <span class="n">expected</span><span class="o">=</span><span class="n">match</span><span class="o">.</span><span class="n">expected</span><span class="p">),</span>
+            <span class="n">matched_customer_endpoints</span><span class="p">,</span>
+            <span class="n">reported</span><span class="p">,</span>
+            <span class="n">infrastructure</span><span class="p">,</span>
+            <span class="n">external_peers</span><span class="p">,</span>
+            <span class="n">ignored_peers</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="n">report</span><span class="o">.</span><span class="n">unknown_observed</span><span class="p">:</span>
+        <span class="n">_route_flow_finding</span><span class="p">(</span>
+            <span class="n">_flow_finding</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">policy</span><span class="p">),</span>
+            <span class="n">matched_customer_endpoints</span><span class="p">,</span>
+            <span class="n">reported</span><span class="p">,</span>
+            <span class="n">infrastructure</span><span class="p">,</span>
+            <span class="n">external_peers</span><span class="p">,</span>
+            <span class="n">ignored_peers</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">FlowReconPolicyReport</span><span class="p">(</span>
+        <span class="n">matched_customer_endpoints</span><span class="o">=</span><span class="n">_sorted_findings</span><span class="p">(</span><span class="n">matched_customer_endpoints</span><span class="p">),</span>
+        <span class="n">unknown_internal_hosts</span><span class="o">=</span><span class="n">_sorted_findings</span><span class="p">(</span><span class="n">reported</span><span class="p">),</span>
+        <span class="n">infrastructure</span><span class="o">=</span><span class="n">_sorted_findings</span><span class="p">(</span><span class="n">infrastructure</span><span class="p">),</span>
+        <span class="n">external_peers</span><span class="o">=</span><span class="n">_sorted_findings</span><span class="p">(</span><span class="n">external_peers</span><span class="p">),</span>
+        <span class="n">ignored_peers</span><span class="o">=</span><span class="n">_sorted_findings</span><span class="p">(</span><span class="n">ignored_peers</span><span class="p">),</span>
+        <span class="n">missing_expected</span><span class="o">=</span><span class="n">_sorted_devices</span><span class="p">(</span><span class="n">report</span><span class="o">.</span><span class="n">missing_expected</span><span class="p">),</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="flow_observations_to_attachments">
+<a class="viewcode-back" href="../../api.html#network_lang.flow_observations_to_attachments">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">flow_observations_to_attachments</span><span class="p">(</span>
+    <span class="n">flows</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">FlowObservation</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+    <span class="n">endpoint</span><span class="p">:</span> <span class="n">FlowEndpoint</span> <span class="o">=</span> <span class="s2">&quot;src&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">AttachmentRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Turn flow observations into topology attachment evidence.&quot;&quot;&quot;</span>
+    <span class="n">attachments</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">AttachmentRecord</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">flow</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_flow</span><span class="p">(</span><span class="n">record</span><span class="p">)</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">flows</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">endpoint</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;src&quot;</span><span class="p">,</span> <span class="s2">&quot;both&quot;</span><span class="p">}</span> <span class="ow">and</span> <span class="n">flow</span><span class="o">.</span><span class="n">ingress_interface</span><span class="p">:</span>
+            <span class="n">attachments</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">AttachmentRecord</span><span class="p">(</span>
+                    <span class="n">device</span><span class="o">=</span><span class="n">_flow_device</span><span class="p">(</span><span class="n">flow</span><span class="p">,</span> <span class="s2">&quot;src&quot;</span><span class="p">),</span>
+                    <span class="n">network_device</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">exporter</span><span class="p">,</span>
+                    <span class="n">interface</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">ingress_interface</span><span class="p">,</span>
+                    <span class="n">source</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">source</span><span class="p">,</span>
+                    <span class="n">metadata</span><span class="o">=</span><span class="n">_flow_metadata</span><span class="p">(</span><span class="n">flow</span><span class="p">,</span> <span class="s2">&quot;src&quot;</span><span class="p">),</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">endpoint</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;dst&quot;</span><span class="p">,</span> <span class="s2">&quot;both&quot;</span><span class="p">}</span> <span class="ow">and</span> <span class="n">flow</span><span class="o">.</span><span class="n">egress_interface</span><span class="p">:</span>
+            <span class="n">attachments</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">AttachmentRecord</span><span class="p">(</span>
+                    <span class="n">device</span><span class="o">=</span><span class="n">_flow_device</span><span class="p">(</span><span class="n">flow</span><span class="p">,</span> <span class="s2">&quot;dst&quot;</span><span class="p">),</span>
+                    <span class="n">network_device</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">exporter</span><span class="p">,</span>
+                    <span class="n">interface</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">egress_interface</span><span class="p">,</span>
+                    <span class="n">source</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">source</span><span class="p">,</span>
+                    <span class="n">metadata</span><span class="o">=</span><span class="n">_flow_metadata</span><span class="p">(</span><span class="n">flow</span><span class="p">,</span> <span class="s2">&quot;dst&quot;</span><span class="p">),</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">attachments</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="resolve_flow_target">
+<a class="viewcode-back" href="../../api.html#network_lang.resolve_flow_target">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_flow_target</span><span class="p">(</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">flows</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">FlowObservation</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FlowTargetResolution</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find the strongest flow observation for a target host or identifier.&quot;&quot;&quot;</span>
+    <span class="n">host</span> <span class="o">=</span> <span class="n">_target_host</span><span class="p">(</span><span class="n">target</span><span class="p">)</span>
+    <span class="n">candidates</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FlowTargetResolution</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">flow</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_flow</span><span class="p">(</span><span class="n">record</span><span class="p">)</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">flows</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">_same_host</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">flow</span><span class="o">.</span><span class="n">src_host</span><span class="p">):</span>
+            <span class="n">candidates</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">FlowTargetResolution</span><span class="p">(</span>
+                    <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
+                    <span class="n">host</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">src_host</span><span class="p">,</span>
+                    <span class="n">network_device</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">exporter</span><span class="p">,</span>
+                    <span class="n">interface</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">ingress_interface</span><span class="p">,</span>
+                    <span class="n">direction</span><span class="o">=</span><span class="s2">&quot;src&quot;</span><span class="p">,</span>
+                    <span class="n">confidence</span><span class="o">=</span><span class="s2">&quot;medium_high&quot;</span> <span class="k">if</span> <span class="n">flow</span><span class="o">.</span><span class="n">ingress_interface</span> <span class="k">else</span> <span class="s2">&quot;medium&quot;</span><span class="p">,</span>
+                    <span class="n">observation</span><span class="o">=</span><span class="n">flow</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">_identifier_matches</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">flow</span><span class="o">.</span><span class="n">src_identifiers</span><span class="p">):</span>
+            <span class="n">candidates</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">FlowTargetResolution</span><span class="p">(</span>
+                    <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
+                    <span class="n">host</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">src_host</span><span class="p">,</span>
+                    <span class="n">network_device</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">exporter</span><span class="p">,</span>
+                    <span class="n">interface</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">ingress_interface</span><span class="p">,</span>
+                    <span class="n">direction</span><span class="o">=</span><span class="s2">&quot;src&quot;</span><span class="p">,</span>
+                    <span class="n">confidence</span><span class="o">=</span><span class="s2">&quot;medium_high&quot;</span> <span class="k">if</span> <span class="n">flow</span><span class="o">.</span><span class="n">ingress_interface</span> <span class="k">else</span> <span class="s2">&quot;medium&quot;</span><span class="p">,</span>
+                    <span class="n">observation</span><span class="o">=</span><span class="n">flow</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">_same_host</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">flow</span><span class="o">.</span><span class="n">dst_host</span><span class="p">):</span>
+            <span class="n">candidates</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">FlowTargetResolution</span><span class="p">(</span>
+                    <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
+                    <span class="n">host</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">dst_host</span><span class="p">,</span>
+                    <span class="n">network_device</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">exporter</span><span class="p">,</span>
+                    <span class="n">interface</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">egress_interface</span><span class="p">,</span>
+                    <span class="n">direction</span><span class="o">=</span><span class="s2">&quot;dst&quot;</span><span class="p">,</span>
+                    <span class="n">confidence</span><span class="o">=</span><span class="s2">&quot;medium_high&quot;</span> <span class="k">if</span> <span class="n">flow</span><span class="o">.</span><span class="n">egress_interface</span> <span class="k">else</span> <span class="s2">&quot;medium&quot;</span><span class="p">,</span>
+                    <span class="n">observation</span><span class="o">=</span><span class="n">flow</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">_identifier_matches</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">flow</span><span class="o">.</span><span class="n">dst_identifiers</span><span class="p">):</span>
+            <span class="n">candidates</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">FlowTargetResolution</span><span class="p">(</span>
+                    <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
+                    <span class="n">host</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">dst_host</span><span class="p">,</span>
+                    <span class="n">network_device</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">exporter</span><span class="p">,</span>
+                    <span class="n">interface</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">egress_interface</span><span class="p">,</span>
+                    <span class="n">direction</span><span class="o">=</span><span class="s2">&quot;dst&quot;</span><span class="p">,</span>
+                    <span class="n">confidence</span><span class="o">=</span><span class="s2">&quot;medium_high&quot;</span> <span class="k">if</span> <span class="n">flow</span><span class="o">.</span><span class="n">egress_interface</span> <span class="k">else</span> <span class="s2">&quot;medium&quot;</span><span class="p">,</span>
+                    <span class="n">observation</span><span class="o">=</span><span class="n">flow</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">candidates</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="k">return</span> <span class="nb">max</span><span class="p">(</span>
+        <span class="n">candidates</span><span class="p">,</span>
+        <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">resolution</span><span class="p">:</span> <span class="p">(</span>
+            <span class="n">resolution</span><span class="o">.</span><span class="n">interface</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="n">resolution</span><span class="o">.</span><span class="n">observation</span><span class="o">.</span><span class="n">bytes</span><span class="p">,</span>
+            <span class="n">resolution</span><span class="o">.</span><span class="n">observation</span><span class="o">.</span><span class="n">packets</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="reconcile_flow_envelope">
+<a class="viewcode-back" href="../../api.html#network_lang.reconcile_flow_envelope">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">reconcile_flow_envelope</span><span class="p">(</span>
+    <span class="n">expected</span><span class="p">:</span> <span class="n">FlowExpectation</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">flows</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">FlowObservation</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FlowEnvelopeReport</span><span class="p">:</span>
+    <span class="n">expectation</span> <span class="o">=</span> <span class="n">_expectation</span><span class="p">(</span><span class="n">expected</span><span class="p">)</span>
+    <span class="n">flow_records</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">_flow</span><span class="p">(</span><span class="n">record</span><span class="p">)</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">flows</span><span class="p">)</span>
+    <span class="n">resolution</span> <span class="o">=</span> <span class="n">resolve_flow_target</span><span class="p">(</span><span class="n">expectation</span><span class="o">.</span><span class="n">target</span><span class="p">,</span> <span class="n">flow_records</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">resolution</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">FlowEnvelopeReport</span><span class="p">(</span>
+            <span class="n">decision</span><span class="o">=</span><span class="s2">&quot;block_operation&quot;</span><span class="p">,</span>
+            <span class="n">identity_confidence</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">topology_confidence</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">health_score</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">action_safety</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">summary</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">expectation</span><span class="o">.</span><span class="n">target</span><span class="si">}</span><span class="s2"> was not observed in flow data&quot;</span><span class="p">,</span>
+            <span class="n">suggested_cause</span><span class="o">=</span><span class="s2">&quot;target_not_observed&quot;</span><span class="p">,</span>
+            <span class="n">action_safety_reason</span><span class="o">=</span><span class="s2">&quot;cannot prove the operation target from flow data&quot;</span><span class="p">,</span>
+            <span class="n">evidence</span><span class="o">=</span><span class="p">(),</span>
+        <span class="p">)</span>
+
+    <span class="n">identity_confidence</span> <span class="o">=</span> <span class="n">_identity_confidence</span><span class="p">(</span><span class="n">resolution</span><span class="p">)</span>
+    <span class="n">topology_confidence</span> <span class="o">=</span> <span class="n">_topology_confidence</span><span class="p">(</span><span class="n">expectation</span><span class="p">,</span> <span class="n">resolution</span><span class="p">)</span>
+    <span class="n">evidence</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span>
+        <span class="n">_check_signal</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">spec</span><span class="p">,</span> <span class="n">_observed_signal</span><span class="p">(</span><span class="n">resolution</span><span class="o">.</span><span class="n">observation</span><span class="p">,</span> <span class="n">name</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">spec</span> <span class="ow">in</span> <span class="n">expectation</span><span class="o">.</span><span class="n">envelope</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+    <span class="p">)</span>
+    <span class="n">health_score</span> <span class="o">=</span> <span class="n">_health_score</span><span class="p">(</span><span class="n">evidence</span><span class="p">)</span>
+    <span class="n">action_safety</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">identity_confidence</span><span class="p">,</span> <span class="n">topology_confidence</span><span class="p">,</span> <span class="n">health_score</span><span class="p">)</span>
+    <span class="n">decision</span> <span class="o">=</span> <span class="n">_decision</span><span class="p">(</span><span class="n">identity_confidence</span><span class="p">,</span> <span class="n">topology_confidence</span><span class="p">,</span> <span class="n">health_score</span><span class="p">)</span>
+    <span class="n">suggested_cause</span> <span class="o">=</span> <span class="n">_suggested_cause</span><span class="p">(</span><span class="n">evidence</span><span class="p">,</span> <span class="n">topology_confidence</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">FlowEnvelopeReport</span><span class="p">(</span>
+        <span class="n">decision</span><span class="o">=</span><span class="n">decision</span><span class="p">,</span>
+        <span class="n">identity_confidence</span><span class="o">=</span><span class="n">identity_confidence</span><span class="p">,</span>
+        <span class="n">topology_confidence</span><span class="o">=</span><span class="n">topology_confidence</span><span class="p">,</span>
+        <span class="n">health_score</span><span class="o">=</span><span class="n">health_score</span><span class="p">,</span>
+        <span class="n">action_safety</span><span class="o">=</span><span class="n">action_safety</span><span class="p">,</span>
+        <span class="n">summary</span><span class="o">=</span><span class="n">_summary</span><span class="p">(</span><span class="n">decision</span><span class="p">,</span> <span class="n">suggested_cause</span><span class="p">),</span>
+        <span class="n">suggested_cause</span><span class="o">=</span><span class="n">suggested_cause</span><span class="p">,</span>
+        <span class="n">action_safety_reason</span><span class="o">=</span><span class="n">_action_safety_reason</span><span class="p">(</span><span class="n">decision</span><span class="p">,</span> <span class="n">suggested_cause</span><span class="p">),</span>
+        <span class="n">evidence</span><span class="o">=</span><span class="n">evidence</span><span class="p">,</span>
+        <span class="n">resolution</span><span class="o">=</span><span class="n">resolution</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flow</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">FlowObservation</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">FlowObservation</span><span class="p">:</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">record</span><span class="p">,</span> <span class="n">FlowObservation</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">record</span>
+    <span class="k">return</span> <span class="n">FlowObservation</span><span class="p">(</span><span class="o">**</span><span class="n">record</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_expectation</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">FlowExpectation</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">FlowExpectation</span><span class="p">:</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">record</span><span class="p">,</span> <span class="n">FlowExpectation</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">record</span>
+    <span class="k">return</span> <span class="n">FlowExpectation</span><span class="p">(</span><span class="o">**</span><span class="nb">dict</span><span class="p">(</span><span class="n">record</span><span class="p">))</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_device_record</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">DeviceRecord</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">DeviceRecord</span><span class="p">:</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">record</span><span class="p">,</span> <span class="n">DeviceRecord</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">record</span>
+    <span class="n">values</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">record</span><span class="p">)</span>
+    <span class="n">values</span><span class="p">[</span><span class="s2">&quot;identifiers&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;identifiers&quot;</span><span class="p">,</span> <span class="p">()))</span>
+    <span class="n">values</span><span class="p">[</span><span class="s2">&quot;metadata&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;metadata&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span>
+    <span class="k">return</span> <span class="n">DeviceRecord</span><span class="p">(</span><span class="o">**</span><span class="n">values</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_device_with_flow_class</span><span class="p">(</span>
+    <span class="n">device</span><span class="p">:</span> <span class="n">DeviceRecord</span><span class="p">,</span>
+    <span class="n">flow_class</span><span class="p">:</span> <span class="n">FlowDeviceClass</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DeviceRecord</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">DeviceRecord</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="n">device</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+        <span class="n">host</span><span class="o">=</span><span class="n">device</span><span class="o">.</span><span class="n">host</span><span class="p">,</span>
+        <span class="n">mac</span><span class="o">=</span><span class="n">device</span><span class="o">.</span><span class="n">mac</span><span class="p">,</span>
+        <span class="n">serial</span><span class="o">=</span><span class="n">device</span><span class="o">.</span><span class="n">serial</span><span class="p">,</span>
+        <span class="n">vendor</span><span class="o">=</span><span class="n">device</span><span class="o">.</span><span class="n">vendor</span><span class="p">,</span>
+        <span class="n">platform</span><span class="o">=</span><span class="n">device</span><span class="o">.</span><span class="n">platform</span><span class="p">,</span>
+        <span class="n">source</span><span class="o">=</span><span class="n">device</span><span class="o">.</span><span class="n">source</span><span class="p">,</span>
+        <span class="n">identifiers</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">device</span><span class="o">.</span><span class="n">identifiers</span><span class="p">),</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="o">**</span><span class="n">device</span><span class="o">.</span><span class="n">metadata</span><span class="p">,</span> <span class="s2">&quot;flow_class&quot;</span><span class="p">:</span> <span class="n">flow_class</span><span class="p">},</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flow_finding</span><span class="p">(</span>
+    <span class="n">device</span><span class="p">:</span> <span class="n">DeviceRecord</span><span class="p">,</span>
+    <span class="n">policy</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="n">FlowDeviceClass</span><span class="p">,</span> <span class="n">FlowReconAction</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">expected</span><span class="p">:</span> <span class="n">DeviceRecord</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FlowReconFinding</span><span class="p">:</span>
+    <span class="n">flow_class</span> <span class="o">=</span> <span class="n">_flow_class</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+    <span class="n">action</span> <span class="o">=</span> <span class="n">policy</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">flow_class</span><span class="p">,</span> <span class="s2">&quot;report&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">FlowReconFinding</span><span class="p">(</span>
+        <span class="n">host</span><span class="o">=</span><span class="n">device</span><span class="o">.</span><span class="n">host</span> <span class="ow">or</span> <span class="n">device</span><span class="o">.</span><span class="n">label</span><span class="p">(),</span>
+        <span class="n">flow_class</span><span class="o">=</span><span class="n">flow_class</span><span class="p">,</span>
+        <span class="n">action</span><span class="o">=</span><span class="n">action</span><span class="p">,</span>
+        <span class="n">summary</span><span class="o">=</span><span class="n">_flow_finding_summary</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
+        <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
+        <span class="n">expected</span><span class="o">=</span><span class="n">expected</span><span class="p">,</span>
+        <span class="n">score</span><span class="o">=</span><span class="n">_flow_match_score</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span> <span class="k">if</span> <span class="n">expected</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flow_match_score</span><span class="p">(</span><span class="n">device</span><span class="p">:</span> <span class="n">DeviceRecord</span><span class="p">,</span> <span class="n">expected</span><span class="p">:</span> <span class="n">DeviceRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="n">shared_keys</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span> <span class="o">&amp;</span> <span class="n">expected</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">startswith</span><span class="p">((</span><span class="s2">&quot;mac:&quot;</span><span class="p">,</span> <span class="s2">&quot;serial:&quot;</span><span class="p">))</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">shared_keys</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mi">100</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;host:&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">shared_keys</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mi">95</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;name:&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">shared_keys</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mi">80</span>
+    <span class="k">if</span> <span class="n">shared_keys</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">75</span>
+    <span class="k">return</span> <span class="mi">0</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_route_flow_finding</span><span class="p">(</span>
+    <span class="n">finding</span><span class="p">:</span> <span class="n">FlowReconFinding</span><span class="p">,</span>
+    <span class="n">matched_customer_endpoints</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">],</span>
+    <span class="n">reported</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">],</span>
+    <span class="n">infrastructure</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">],</span>
+    <span class="n">external_peers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">],</span>
+    <span class="n">ignored_peers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">finding</span><span class="o">.</span><span class="n">action</span> <span class="o">==</span> <span class="s2">&quot;match_or_score&quot;</span><span class="p">:</span>
+        <span class="n">matched_customer_endpoints</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">finding</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">finding</span><span class="o">.</span><span class="n">action</span> <span class="o">==</span> <span class="s2">&quot;report&quot;</span><span class="p">:</span>
+        <span class="n">reported</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">finding</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">finding</span><span class="o">.</span><span class="n">action</span> <span class="o">==</span> <span class="s2">&quot;infrastructure&quot;</span><span class="p">:</span>
+        <span class="n">infrastructure</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">finding</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">finding</span><span class="o">.</span><span class="n">flow_class</span> <span class="o">==</span> <span class="s2">&quot;public_external&quot;</span><span class="p">:</span>
+        <span class="n">external_peers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">finding</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">ignored_peers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">finding</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_sorted_findings</span><span class="p">(</span><span class="n">findings</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">findings</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">_finding_sort_key</span><span class="p">))</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_sorted_devices</span><span class="p">(</span><span class="n">devices</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">DeviceRecord</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">DeviceRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">devices</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">_device_sort_key</span><span class="p">))</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_finding_sort_key</span><span class="p">(</span><span class="n">finding</span><span class="p">:</span> <span class="n">FlowReconFinding</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">_normalize_host</span><span class="p">(</span><span class="n">finding</span><span class="o">.</span><span class="n">host</span><span class="p">),</span> <span class="n">finding</span><span class="o">.</span><span class="n">flow_class</span><span class="p">,</span> <span class="n">finding</span><span class="o">.</span><span class="n">action</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_device_sort_key</span><span class="p">(</span><span class="n">device</span><span class="p">:</span> <span class="n">DeviceRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">_normalize_host</span><span class="p">(</span><span class="n">device</span><span class="o">.</span><span class="n">host</span> <span class="ow">or</span> <span class="n">device</span><span class="o">.</span><span class="n">label</span><span class="p">()),</span> <span class="n">device</span><span class="o">.</span><span class="n">label</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flow_class</span><span class="p">(</span><span class="n">device</span><span class="p">:</span> <span class="n">DeviceRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FlowDeviceClass</span><span class="p">:</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;flow_class&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">FLOW_RECON_POLICY</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">value</span>
+    <span class="k">return</span> <span class="s2">&quot;unknown_internal&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flow_finding_summary</span><span class="p">(</span><span class="n">device</span><span class="p">:</span> <span class="n">DeviceRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">metadata</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">metadata</span> <span class="ow">or</span> <span class="p">{}</span>
+    <span class="n">host</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">host</span> <span class="ow">or</span> <span class="n">device</span><span class="o">.</span><span class="n">label</span><span class="p">()</span>
+    <span class="n">summary</span> <span class="o">=</span> <span class="n">host</span>
+    <span class="n">exporter</span> <span class="o">=</span> <span class="n">_string</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;exporter&quot;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">exporter</span><span class="p">:</span>
+        <span class="n">summary</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">summary</span><span class="si">}</span><span class="s2"> seen via exporter </span><span class="si">{</span><span class="n">exporter</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">interface</span> <span class="o">=</span> <span class="n">_flow_interface_label</span><span class="p">(</span><span class="n">metadata</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">interface</span><span class="p">:</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">interface</span><span class="p">)</span>
+    <span class="n">traffic</span> <span class="o">=</span> <span class="n">_flow_traffic_label</span><span class="p">(</span><span class="n">metadata</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">traffic</span><span class="p">:</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">traffic</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">parts</span><span class="p">:</span>
+        <span class="n">summary</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">summary</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="n">summary</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flow_interface_value</span><span class="p">(</span><span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">direction</span> <span class="o">=</span> <span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;direction&quot;</span><span class="p">)</span>
+    <span class="n">interface</span> <span class="o">=</span> <span class="n">_nonzero</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;interface_index&quot;</span><span class="p">))</span>
+    <span class="n">input_interface</span> <span class="o">=</span> <span class="n">_nonzero</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;input_interface_index&quot;</span><span class="p">))</span>
+    <span class="n">output_interface</span> <span class="o">=</span> <span class="n">_nonzero</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;output_interface_index&quot;</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="n">interface</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">interface</span>
+    <span class="k">if</span> <span class="n">direction</span> <span class="o">==</span> <span class="s2">&quot;src&quot;</span> <span class="ow">and</span> <span class="n">output_interface</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">output_interface</span>
+    <span class="k">if</span> <span class="n">direction</span> <span class="o">==</span> <span class="s2">&quot;dst&quot;</span> <span class="ow">and</span> <span class="n">input_interface</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">input_interface</span>
+    <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flow_interface_label</span><span class="p">(</span><span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">direction</span> <span class="o">=</span> <span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;direction&quot;</span><span class="p">)</span>
+    <span class="n">interface</span> <span class="o">=</span> <span class="n">_nonzero</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;interface_index&quot;</span><span class="p">))</span>
+    <span class="n">input_interface</span> <span class="o">=</span> <span class="n">_nonzero</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;input_interface_index&quot;</span><span class="p">))</span>
+    <span class="n">output_interface</span> <span class="o">=</span> <span class="n">_nonzero</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;output_interface_index&quot;</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="n">interface</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;interface </span><span class="si">{</span><span class="n">interface</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">if</span> <span class="n">direction</span> <span class="o">==</span> <span class="s2">&quot;src&quot;</span> <span class="ow">and</span> <span class="n">output_interface</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;output interface </span><span class="si">{</span><span class="n">output_interface</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">if</span> <span class="n">direction</span> <span class="o">==</span> <span class="s2">&quot;dst&quot;</span> <span class="ow">and</span> <span class="n">input_interface</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;input interface </span><span class="si">{</span><span class="n">input_interface</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flow_traffic_label</span><span class="p">(</span><span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">peer</span> <span class="o">=</span> <span class="n">_string</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;peer_host&quot;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">peer</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="n">src_port</span> <span class="o">=</span> <span class="n">_int</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;src_port&quot;</span><span class="p">))</span>
+    <span class="n">dst_port</span> <span class="o">=</span> <span class="n">_int</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;dst_port&quot;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">dst_port</span> <span class="ow">in</span> <span class="n">SERVICE_NAMES</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">SERVICE_NAMES</span><span class="p">[</span><span class="n">dst_port</span><span class="p">]</span><span class="si">}</span><span class="s2"> to </span><span class="si">{</span><span class="n">peer</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">if</span> <span class="n">src_port</span> <span class="ow">in</span> <span class="n">SERVICE_NAMES</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">SERVICE_NAMES</span><span class="p">[</span><span class="n">src_port</span><span class="p">]</span><span class="si">}</span><span class="s2"> from </span><span class="si">{</span><span class="n">peer</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">if</span> <span class="n">dst_port</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;port </span><span class="si">{</span><span class="n">dst_port</span><span class="si">}</span><span class="s2"> to </span><span class="si">{</span><span class="n">peer</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">if</span> <span class="n">src_port</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;port </span><span class="si">{</span><span class="n">src_port</span><span class="si">}</span><span class="s2"> from </span><span class="si">{</span><span class="n">peer</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;peer </span><span class="si">{</span><span class="n">peer</span><span class="si">}</span><span class="s2">&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_finding_section</span><span class="p">(</span>
+    <span class="n">title</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">findings</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FlowReconFinding</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">use_summary</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">detail</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">title</span><span class="si">}</span><span class="s2">:&quot;</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">finding</span> <span class="ow">in</span> <span class="n">findings</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">detail</span><span class="p">:</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;- </span><span class="si">{</span><span class="n">_finding_detail</span><span class="p">(</span><span class="n">finding</span><span class="p">,</span><span class="w"> </span><span class="n">detail</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;- </span><span class="si">{</span><span class="n">finding</span><span class="o">.</span><span class="n">summary</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">use_summary</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="n">finding</span><span class="o">.</span><span class="n">host</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_finding_detail</span><span class="p">(</span><span class="n">finding</span><span class="p">:</span> <span class="n">FlowReconFinding</span><span class="p">,</span> <span class="n">detail</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">metadata</span> <span class="o">=</span> <span class="n">finding</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">metadata</span> <span class="ow">or</span> <span class="p">{}</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="p">[</span><span class="n">finding</span><span class="o">.</span><span class="n">host</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">detail</span> <span class="o">==</span> <span class="s2">&quot;matched&quot;</span> <span class="ow">and</span> <span class="n">finding</span><span class="o">.</span><span class="n">score</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;score=</span><span class="si">{</span><span class="n">finding</span><span class="o">.</span><span class="n">score</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">finding</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">source</span><span class="p">:</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;source=</span><span class="si">{</span><span class="n">finding</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">source</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">exporter</span> <span class="o">=</span> <span class="n">_string</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;exporter&quot;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">exporter</span><span class="p">:</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;exporter=</span><span class="si">{</span><span class="n">exporter</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">interface</span> <span class="o">=</span> <span class="n">_flow_interface_value</span><span class="p">(</span><span class="n">metadata</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">interface</span><span class="p">:</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interface=</span><span class="si">{</span><span class="n">interface</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_missing_section</span><span class="p">(</span><span class="n">title</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">devices</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">DeviceRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">title</span><span class="si">}</span><span class="s2">:&quot;</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="n">devices</span><span class="p">:</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;- </span><span class="si">{</span><span class="n">device</span><span class="o">.</span><span class="n">label</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flow_device</span><span class="p">(</span><span class="n">flow</span><span class="p">:</span> <span class="n">FlowObservation</span><span class="p">,</span> <span class="n">direction</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">,</span> <span class="s2">&quot;dst&quot;</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">DeviceRecord</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">direction</span> <span class="o">==</span> <span class="s2">&quot;src&quot;</span><span class="p">:</span>
+        <span class="n">host</span> <span class="o">=</span> <span class="n">flow</span><span class="o">.</span><span class="n">src_host</span>
+        <span class="n">mac</span> <span class="o">=</span> <span class="n">flow</span><span class="o">.</span><span class="n">src_mac</span>
+        <span class="n">identifiers</span> <span class="o">=</span> <span class="n">flow</span><span class="o">.</span><span class="n">src_identifiers</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">host</span> <span class="o">=</span> <span class="n">flow</span><span class="o">.</span><span class="n">dst_host</span>
+        <span class="n">mac</span> <span class="o">=</span> <span class="n">flow</span><span class="o">.</span><span class="n">dst_mac</span>
+        <span class="n">identifiers</span> <span class="o">=</span> <span class="n">flow</span><span class="o">.</span><span class="n">dst_identifiers</span>
+
+    <span class="k">return</span> <span class="n">DeviceRecord</span><span class="p">(</span>
+        <span class="n">host</span><span class="o">=</span><span class="n">host</span><span class="p">,</span>
+        <span class="n">mac</span><span class="o">=</span><span class="n">mac</span><span class="p">,</span>
+        <span class="n">source</span><span class="o">=</span><span class="n">flow</span><span class="o">.</span><span class="n">source</span><span class="p">,</span>
+        <span class="n">identifiers</span><span class="o">=</span><span class="n">identifiers</span><span class="p">,</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="n">_flow_metadata</span><span class="p">(</span><span class="n">flow</span><span class="p">,</span> <span class="n">direction</span><span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flow_metadata</span><span class="p">(</span><span class="n">flow</span><span class="p">:</span> <span class="n">FlowObservation</span><span class="p">,</span> <span class="n">direction</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="n">peer_host</span> <span class="o">=</span> <span class="n">flow</span><span class="o">.</span><span class="n">dst_host</span> <span class="k">if</span> <span class="n">direction</span> <span class="o">==</span> <span class="s2">&quot;src&quot;</span> <span class="k">else</span> <span class="n">flow</span><span class="o">.</span><span class="n">src_host</span>
+    <span class="n">interface</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">flow</span><span class="o">.</span><span class="n">ingress_interface</span> <span class="k">if</span> <span class="n">direction</span> <span class="o">==</span> <span class="s2">&quot;src&quot;</span> <span class="k">else</span> <span class="n">flow</span><span class="o">.</span><span class="n">egress_interface</span>
+    <span class="p">)</span>
+    <span class="n">metadata</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;exporter&quot;</span><span class="p">:</span> <span class="n">flow</span><span class="o">.</span><span class="n">exporter</span><span class="p">,</span>
+        <span class="s2">&quot;direction&quot;</span><span class="p">:</span> <span class="n">direction</span><span class="p">,</span>
+        <span class="s2">&quot;peer_host&quot;</span><span class="p">:</span> <span class="n">peer_host</span><span class="p">,</span>
+        <span class="s2">&quot;interface&quot;</span><span class="p">:</span> <span class="n">interface</span><span class="p">,</span>
+        <span class="s2">&quot;ingress_interface&quot;</span><span class="p">:</span> <span class="n">flow</span><span class="o">.</span><span class="n">ingress_interface</span><span class="p">,</span>
+        <span class="s2">&quot;egress_interface&quot;</span><span class="p">:</span> <span class="n">flow</span><span class="o">.</span><span class="n">egress_interface</span><span class="p">,</span>
+        <span class="s2">&quot;protocol&quot;</span><span class="p">:</span> <span class="n">flow</span><span class="o">.</span><span class="n">protocol</span><span class="p">,</span>
+        <span class="s2">&quot;src_port&quot;</span><span class="p">:</span> <span class="n">flow</span><span class="o">.</span><span class="n">src_port</span><span class="p">,</span>
+        <span class="s2">&quot;dst_port&quot;</span><span class="p">:</span> <span class="n">flow</span><span class="o">.</span><span class="n">dst_port</span><span class="p">,</span>
+        <span class="s2">&quot;bytes&quot;</span><span class="p">:</span> <span class="n">flow</span><span class="o">.</span><span class="n">bytes</span><span class="p">,</span>
+        <span class="s2">&quot;packets&quot;</span><span class="p">:</span> <span class="n">flow</span><span class="o">.</span><span class="n">packets</span><span class="p">,</span>
+        <span class="s2">&quot;window_start&quot;</span><span class="p">:</span> <span class="n">flow</span><span class="o">.</span><span class="n">window_start</span><span class="p">,</span>
+        <span class="s2">&quot;window_end&quot;</span><span class="p">:</span> <span class="n">flow</span><span class="o">.</span><span class="n">window_end</span><span class="p">,</span>
+    <span class="p">}</span>
+    <span class="n">metadata</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">flow</span><span class="o">.</span><span class="n">metadata</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">metadata</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_target_host</span><span class="p">(</span><span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">target</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">value</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;ip:&quot;</span><span class="p">):</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="mi">3</span><span class="p">:]</span>
+    <span class="k">return</span> <span class="n">_normalize_host</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_same_host</span><span class="p">(</span><span class="n">left</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">right</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">_normalize_host</span><span class="p">(</span><span class="n">left</span><span class="p">)</span> <span class="o">==</span> <span class="n">_normalize_host</span><span class="p">(</span><span class="n">right</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_identifier_matches</span><span class="p">(</span><span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">identifiers</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">target</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">identifier</span> <span class="ow">in</span> <span class="n">identifiers</span><span class="p">:</span>
+        <span class="n">candidate</span> <span class="o">=</span> <span class="n">identifier</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">candidate</span> <span class="o">==</span> <span class="n">value</span> <span class="ow">or</span> <span class="n">candidate</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">return</span> <span class="kc">False</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_include_flow_class</span><span class="p">(</span>
+    <span class="n">flow_class</span><span class="p">:</span> <span class="n">FlowDeviceClass</span><span class="p">,</span>
+    <span class="n">scope</span><span class="p">:</span> <span class="n">FlowDeviceScope</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">exclude_exporters</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">include_external_peers</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">exclude_exporters</span> <span class="ow">and</span> <span class="n">flow_class</span> <span class="o">==</span> <span class="s2">&quot;exporter&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="n">scope</span> <span class="o">==</span> <span class="s2">&quot;external&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">flow_class</span> <span class="o">==</span> <span class="s2">&quot;public_external&quot;</span>
+    <span class="k">if</span> <span class="n">scope</span> <span class="o">==</span> <span class="s2">&quot;ignored&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">flow_class</span> <span class="o">==</span> <span class="s2">&quot;ignored_peer&quot;</span>
+    <span class="k">if</span> <span class="n">scope</span> <span class="o">==</span> <span class="s2">&quot;all&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">if</span> <span class="n">flow_class</span> <span class="o">==</span> <span class="s2">&quot;ignored_peer&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="n">flow_class</span> <span class="o">==</span> <span class="s2">&quot;public_external&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">scope</span> <span class="o">==</span> <span class="s2">&quot;internal&quot;</span> <span class="ow">and</span> <span class="n">include_external_peers</span>
+    <span class="k">if</span> <span class="n">scope</span> <span class="o">==</span> <span class="s2">&quot;internal&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">flow_class</span> <span class="ow">in</span> <span class="p">{</span>
+            <span class="s2">&quot;private_internal&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;known_infrastructure&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;customer_endpoint&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;unknown_internal&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;exporter&quot;</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="k">if</span> <span class="n">scope</span> <span class="o">==</span> <span class="s2">&quot;managed&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">flow_class</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;known_infrastructure&quot;</span><span class="p">,</span> <span class="s2">&quot;customer_endpoint&quot;</span><span class="p">,</span> <span class="s2">&quot;exporter&quot;</span><span class="p">}</span>
+    <span class="k">if</span> <span class="n">scope</span> <span class="o">==</span> <span class="s2">&quot;customer&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">flow_class</span> <span class="o">==</span> <span class="s2">&quot;customer_endpoint&quot;</span>
+    <span class="k">if</span> <span class="n">scope</span> <span class="o">==</span> <span class="s2">&quot;infrastructure&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">flow_class</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;known_infrastructure&quot;</span><span class="p">,</span> <span class="s2">&quot;exporter&quot;</span><span class="p">}</span>
+    <span class="k">if</span> <span class="n">scope</span> <span class="o">==</span> <span class="s2">&quot;unknown_internal&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">flow_class</span> <span class="o">==</span> <span class="s2">&quot;unknown_internal&quot;</span>
+    <span class="k">return</span> <span class="kc">False</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_host_in_values</span><span class="p">(</span><span class="n">host</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">return</span> <span class="nb">any</span><span class="p">(</span><span class="n">_same_host</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_host_in_networks</span><span class="p">(</span><span class="n">host</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">networks</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">address</span> <span class="o">=</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">ip_address</span><span class="p">(</span><span class="n">host</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">for</span> <span class="n">network</span> <span class="ow">in</span> <span class="n">networks</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">ip_network</span><span class="p">(</span><span class="n">network</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+                <span class="k">return</span> <span class="kc">True</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">continue</span>
+    <span class="k">return</span> <span class="kc">False</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_private_host</span><span class="p">(</span><span class="n">host</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">address</span> <span class="o">=</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">ip_address</span><span class="p">(</span><span class="n">host</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="n">address</span><span class="o">.</span><span class="n">is_private</span> <span class="ow">or</span> <span class="n">address</span><span class="o">.</span><span class="n">is_link_local</span> <span class="ow">or</span> <span class="n">address</span><span class="o">.</span><span class="n">is_loopback</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_ignored_peer_host</span><span class="p">(</span><span class="n">host</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">address</span> <span class="o">=</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">ip_address</span><span class="p">(</span><span class="n">host</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">if</span> <span class="p">(</span>
+        <span class="n">address</span><span class="o">.</span><span class="n">is_unspecified</span>
+        <span class="ow">or</span> <span class="n">address</span><span class="o">.</span><span class="n">is_loopback</span>
+        <span class="ow">or</span> <span class="n">address</span><span class="o">.</span><span class="n">is_link_local</span>
+        <span class="ow">or</span> <span class="n">address</span><span class="o">.</span><span class="n">is_multicast</span>
+        <span class="ow">or</span> <span class="n">host</span> <span class="o">==</span> <span class="s2">&quot;255.255.255.255&quot;</span>
+    <span class="p">):</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">IPv4Address</span><span class="p">)</span> <span class="ow">and</span> <span class="n">host</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s2">&quot;.255&quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">return</span> <span class="kc">False</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_string</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_int</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_nonzero</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">number</span> <span class="o">=</span> <span class="n">_int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">number</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">number</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">and</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">!=</span> <span class="s2">&quot;0&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_identity_confidence</span><span class="p">(</span><span class="n">resolution</span><span class="p">:</span> <span class="n">FlowTargetResolution</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">resolution</span><span class="o">.</span><span class="n">confidence</span> <span class="o">==</span> <span class="s2">&quot;medium_high&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">90</span>
+    <span class="k">return</span> <span class="mi">75</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_topology_confidence</span><span class="p">(</span>
+    <span class="n">expected</span><span class="p">:</span> <span class="n">FlowExpectation</span><span class="p">,</span>
+    <span class="n">resolution</span><span class="p">:</span> <span class="n">FlowTargetResolution</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="n">score</span> <span class="o">=</span> <span class="mi">100</span>
+    <span class="k">if</span> <span class="n">expected</span><span class="o">.</span><span class="n">network_device</span> <span class="ow">and</span> <span class="p">(</span>
+        <span class="n">expected</span><span class="o">.</span><span class="n">network_device</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="o">!=</span> <span class="n">resolution</span><span class="o">.</span><span class="n">network_device</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="p">):</span>
+        <span class="n">score</span> <span class="o">-=</span> <span class="mi">50</span>
+    <span class="k">if</span> <span class="n">expected</span><span class="o">.</span><span class="n">interface</span> <span class="ow">and</span> <span class="p">(</span>
+        <span class="ow">not</span> <span class="n">resolution</span><span class="o">.</span><span class="n">interface</span>
+        <span class="ow">or</span> <span class="n">expected</span><span class="o">.</span><span class="n">interface</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">!=</span> <span class="n">resolution</span><span class="o">.</span><span class="n">interface</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="p">):</span>
+        <span class="n">score</span> <span class="o">-=</span> <span class="mi">50</span>
+    <span class="k">return</span> <span class="nb">max</span><span class="p">(</span><span class="n">score</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_observed_signal</span><span class="p">(</span><span class="n">flow</span><span class="p">:</span> <span class="n">FlowObservation</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">flow</span><span class="o">.</span><span class="n">metadata</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">flow</span><span class="o">.</span><span class="n">metadata</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">alias</span> <span class="ow">in</span> <span class="n">_SIGNAL_ALIASES</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="p">()):</span>
+        <span class="k">if</span> <span class="n">alias</span> <span class="ow">in</span> <span class="n">flow</span><span class="o">.</span><span class="n">metadata</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">flow</span><span class="o">.</span><span class="n">metadata</span><span class="p">[</span><span class="n">alias</span><span class="p">]</span>
+    <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">flow</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_check_signal</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">spec</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">observed</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FlowSignalCheck</span><span class="p">:</span>
+    <span class="n">expected</span> <span class="o">=</span> <span class="n">_signal_spec</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span>
+    <span class="n">severity</span> <span class="o">=</span> <span class="n">expected</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;severity&quot;</span><span class="p">,</span> <span class="s2">&quot;medium&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">observed</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">FlowSignalCheck</span><span class="p">(</span>
+            <span class="n">name</span><span class="p">,</span>
+            <span class="s2">&quot;missing&quot;</span><span class="p">,</span>
+            <span class="n">_expected_label</span><span class="p">(</span><span class="n">expected</span><span class="p">),</span>
+            <span class="kc">None</span><span class="p">,</span>
+            <span class="n">severity</span><span class="p">,</span>
+            <span class="mi">50</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> was not observed&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="n">ok</span> <span class="o">=</span> <span class="n">_signal_ok</span><span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">observed</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">FlowSignalCheck</span><span class="p">(</span>
+        <span class="n">name</span><span class="p">,</span>
+        <span class="s2">&quot;inside_envelope&quot;</span> <span class="k">if</span> <span class="n">ok</span> <span class="k">else</span> <span class="s2">&quot;out_of_envelope&quot;</span><span class="p">,</span>
+        <span class="n">_expected_label</span><span class="p">(</span><span class="n">expected</span><span class="p">),</span>
+        <span class="n">observed</span><span class="p">,</span>
+        <span class="n">severity</span><span class="p">,</span>
+        <span class="mi">100</span> <span class="k">if</span> <span class="n">ok</span> <span class="k">else</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> is inside expected envelope&quot;</span>
+        <span class="k">if</span> <span class="n">ok</span>
+        <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> is outside expected envelope&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_signal_spec</span><span class="p">(</span><span class="n">spec</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;near_zero&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">{</span><span class="o">**</span><span class="n">spec</span><span class="p">,</span> <span class="s2">&quot;max&quot;</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;max&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)}</span>
+        <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="p">(</span><span class="nb">tuple</span><span class="p">,</span> <span class="nb">list</span><span class="p">))</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;min&quot;</span><span class="p">:</span> <span class="n">spec</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">&quot;max&quot;</span><span class="p">:</span> <span class="n">spec</span><span class="p">[</span><span class="mi">1</span><span class="p">]}</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;equals&quot;</span><span class="p">:</span> <span class="n">spec</span><span class="p">}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_signal_ok</span><span class="p">(</span><span class="n">spec</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">observed</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">if</span> <span class="s2">&quot;equals&quot;</span> <span class="ow">in</span> <span class="n">spec</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">observed</span> <span class="o">==</span> <span class="n">spec</span><span class="p">[</span><span class="s2">&quot;equals&quot;</span><span class="p">]:</span>
+            <span class="k">return</span> <span class="kc">True</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">observed</span><span class="p">)</span> <span class="o">==</span> <span class="nb">float</span><span class="p">(</span><span class="n">spec</span><span class="p">[</span><span class="s2">&quot;equals&quot;</span><span class="p">])</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">):</span>
+            <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">observed</span><span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="n">minimum</span> <span class="o">=</span> <span class="n">spec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;min&quot;</span><span class="p">)</span>
+    <span class="n">maximum</span> <span class="o">=</span> <span class="n">spec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;max&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">minimum</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">value</span> <span class="o">&lt;</span> <span class="nb">float</span><span class="p">(</span><span class="n">minimum</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="n">maximum</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">value</span> <span class="o">&gt;</span> <span class="nb">float</span><span class="p">(</span><span class="n">maximum</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="kc">True</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_expected_label</span><span class="p">(</span><span class="n">spec</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+    <span class="k">if</span> <span class="s2">&quot;equals&quot;</span> <span class="ow">in</span> <span class="n">spec</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">spec</span><span class="p">[</span><span class="s2">&quot;equals&quot;</span><span class="p">]</span>
+    <span class="k">if</span> <span class="s2">&quot;min&quot;</span> <span class="ow">in</span> <span class="n">spec</span> <span class="ow">and</span> <span class="s2">&quot;max&quot;</span> <span class="ow">in</span> <span class="n">spec</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">spec</span><span class="p">[</span><span class="s1">&#39;min&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">..</span><span class="si">{</span><span class="n">spec</span><span class="p">[</span><span class="s1">&#39;max&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">if</span> <span class="s2">&quot;min&quot;</span> <span class="ow">in</span> <span class="n">spec</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&gt;= </span><span class="si">{</span><span class="n">spec</span><span class="p">[</span><span class="s1">&#39;min&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">if</span> <span class="s2">&quot;max&quot;</span> <span class="ow">in</span> <span class="n">spec</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&lt;= </span><span class="si">{</span><span class="n">spec</span><span class="p">[</span><span class="s1">&#39;max&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="n">spec</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_health_score</span><span class="p">(</span><span class="n">evidence</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FlowSignalCheck</span><span class="p">,</span> <span class="o">...</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">evidence</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">100</span>
+    <span class="k">return</span> <span class="nb">round</span><span class="p">(</span><span class="nb">sum</span><span class="p">(</span><span class="n">check</span><span class="o">.</span><span class="n">score</span> <span class="k">for</span> <span class="n">check</span> <span class="ow">in</span> <span class="n">evidence</span><span class="p">)</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">evidence</span><span class="p">))</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_decision</span><span class="p">(</span><span class="n">identity</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">topology</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">health</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">identity</span> <span class="o">&lt;</span> <span class="mi">50</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;block_operation&quot;</span>
+    <span class="k">if</span> <span class="n">topology</span> <span class="o">&lt;</span> <span class="mi">60</span> <span class="ow">or</span> <span class="n">health</span> <span class="o">&lt;</span> <span class="mi">50</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;investigate_first&quot;</span>
+    <span class="k">if</span> <span class="n">topology</span> <span class="o">&lt;</span> <span class="mi">80</span> <span class="ow">or</span> <span class="n">health</span> <span class="o">&lt;</span> <span class="mi">80</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;allow_with_confirmation&quot;</span>
+    <span class="k">return</span> <span class="s2">&quot;safe&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_suggested_cause</span><span class="p">(</span>
+    <span class="n">evidence</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FlowSignalCheck</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="n">topology_confidence</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">failed</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">check</span><span class="o">.</span><span class="n">signal</span>
+        <span class="k">for</span> <span class="n">check</span> <span class="ow">in</span> <span class="n">evidence</span>
+        <span class="k">if</span> <span class="n">check</span><span class="o">.</span><span class="n">status</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;out_of_envelope&quot;</span><span class="p">,</span> <span class="s2">&quot;missing&quot;</span><span class="p">}</span>
+    <span class="p">}</span>
+    <span class="k">if</span> <span class="n">topology_confidence</span> <span class="o">&lt;</span> <span class="mi">60</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;topology_mismatch&quot;</span>
+    <span class="k">if</span> <span class="n">failed</span> <span class="o">&amp;</span> <span class="n">WIRELESS_SIGNALS</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;wireless_or_physical_layer_issue&quot;</span>
+    <span class="k">if</span> <span class="n">failed</span> <span class="o">&amp;</span> <span class="n">TRANSPORT_SIGNALS</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;interface_or_transport_issue&quot;</span>
+    <span class="k">if</span> <span class="n">failed</span> <span class="o">&amp;</span> <span class="n">THROUGHPUT_SIGNALS</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;traffic_anomaly&quot;</span>
+    <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_summary</span><span class="p">(</span><span class="n">decision</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">cause</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">decision</span> <span class="o">==</span> <span class="s2">&quot;safe&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;identity, topology, and health are inside the expected envelope&quot;</span>
+    <span class="k">if</span> <span class="n">cause</span> <span class="o">==</span> <span class="s2">&quot;wireless_or_physical_layer_issue&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;identity matches, but wireless link quality is degraded&quot;</span>
+    <span class="k">if</span> <span class="n">cause</span> <span class="o">==</span> <span class="s2">&quot;interface_or_transport_issue&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;identity matches, but interface health is degraded&quot;</span>
+    <span class="k">if</span> <span class="n">cause</span> <span class="o">==</span> <span class="s2">&quot;topology_mismatch&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;identity matches, but topology does not match expectation&quot;</span>
+    <span class="k">if</span> <span class="n">cause</span> <span class="o">==</span> <span class="s2">&quot;traffic_anomaly&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;identity matches, but traffic is outside the expected envelope&quot;</span>
+    <span class="k">return</span> <span class="s2">&quot;identity matches, but observed signals need review&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_action_safety_reason</span><span class="p">(</span><span class="n">decision</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">cause</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">decision</span> <span class="o">==</span> <span class="s2">&quot;safe&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;observed state is inside the expected envelope&quot;</span>
+    <span class="k">if</span> <span class="n">cause</span> <span class="o">==</span> <span class="s2">&quot;topology_mismatch&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;confirm target location before config changes&quot;</span>
+    <span class="k">return</span> <span class="s2">&quot;do not push config changes while the link is unstable&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_normalize_host</span><span class="p">(</span><span class="n">host</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">host</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">ipaddress</span><span class="o">.</span><span class="n">ip_address</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">value</span>
+
+
+<span class="n">WIRELESS_SIGNALS</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;rssi&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;ccq&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;noise_floor&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;snr&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;signal&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;signal_chain&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;disconnect_count&quot;</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+
+<span class="n">TRANSPORT_SIGNALS</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;mtu&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;link_speed&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;duplex&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;tx_errors&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;rx_errors&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;tx_errors_delta&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;rx_errors_delta&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;drops&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;crc_errors&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;fcs_errors&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;flapping_count&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;bridge_stp_state&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;queue_drops&quot;</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+
+<span class="n">THROUGHPUT_SIGNALS</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;traffic_mbps&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;throughput_mbps&quot;</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+
+<span class="n">_SIGNAL_ALIASES</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;traffic_mbps&quot;</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;throughput_mbps&quot;</span><span class="p">,</span> <span class="s2">&quot;mbps&quot;</span><span class="p">),</span>
+    <span class="s2">&quot;rx_errors&quot;</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;rx_errors_delta&quot;</span><span class="p">,),</span>
+    <span class="s2">&quot;tx_errors&quot;</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;tx_errors_delta&quot;</span><span class="p">,),</span>
+<span class="p">}</span>
+
+<span class="n">SERVICE_NAMES</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="mi">22</span><span class="p">:</span> <span class="s2">&quot;SSH&quot;</span><span class="p">,</span>
+    <span class="mi">53</span><span class="p">:</span> <span class="s2">&quot;DNS&quot;</span><span class="p">,</span>
+    <span class="mi">80</span><span class="p">:</span> <span class="s2">&quot;HTTP&quot;</span><span class="p">,</span>
+    <span class="mi">123</span><span class="p">:</span> <span class="s2">&quot;NTP&quot;</span><span class="p">,</span>
+    <span class="mi">443</span><span class="p">:</span> <span class="s2">&quot;HTTPS&quot;</span><span class="p">,</span>
+    <span class="mi">8291</span><span class="p">:</span> <span class="s2">&quot;Winbox&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">network-lang</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../operations.html">Operation Model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../inventory.html">Inventory and Targets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../adapters.html">Adapters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples.html">Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../flowcollector.html">Flow Collector</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../topology-preflight.html">Topology, Reconciliation, and Preflight</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cli.html">CLI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../syntax-v0.html">Syntax v0 Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Unified Network Syntax contributors.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 7.3.7</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

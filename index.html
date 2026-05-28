@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>network-lang &#8212; network-lang 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=12dfc556" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=9a2dae69"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Getting Started" href="getting-started.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="network-lang">
+<h1>network-lang<a class="headerlink" href="#network-lang" title="Link to this heading">¶</a></h1>
+<p>Unified Network Syntax is a small Python reference implementation for a
+vendor-neutral network operation model. It lets operators describe intent once,
+validate that intent, and then translate it to device-specific adapters such as
+MikroTik RouterOS REST or Ubiquiti airOS endpoint plans.</p>
+<p>The project is library-first. Text files and the <code class="docutils literal notranslate"><span class="pre">uns</span></code> CLI are convenient
+ways to parse and inspect the same operation model, but the core object is
+always an <a class="reference internal" href="api.html#network_lang.Operation" title="network_lang.Operation"><code class="xref py py-class docutils literal notranslate"><span class="pre">network_lang.Operation</span></code></a>.</p>
+<section id="what-works-today">
+<h2>What Works Today<a class="headerlink" href="#what-works-today" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Parse <code class="docutils literal notranslate"><span class="pre">.uns</span></code> operation files into typed Python operations.</p></li>
+<li><p>Build operations from Python with fluent access or dotted names.</p></li>
+<li><p>Validate namespaces, operation shape, core actions, and required targets.</p></li>
+<li><p>Plan and execute selected MikroTik RouterOS REST operations.</p></li>
+<li><p>Plan selected Ubiquiti airOS operations without executing them.</p></li>
+<li><p>Normalize RouterOS observations into inventory and topology records.</p></li>
+<li><p>Reconcile expected devices or attachments against observed data.</p></li>
+<li><p>Preflight risky interface operations against live topology observations.</p></li>
+<li><p>Collect NetFlow v5 endpoint evidence with a lightweight Go collector.</p></li>
+<li><p>Generate standalone HTML graphs from adapter-normalized operational samples.</p></li>
+</ul>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#install-for-local-development">Install for Local Development</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#parse-an-operation-file">Parse an Operation File</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#validate-an-operation-file">Validate an Operation File</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#build-operations-in-python">Build Operations in Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#plan-a-routeros-operation">Plan a RouterOS Operation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#execute-through-an-inventory-target">Execute Through an Inventory Target</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#run-tests">Run Tests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#build-these-docs">Build These Docs</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="operations.html">Operation Model</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="operations.html#operation-fields">Operation Fields</a></li>
+<li class="toctree-l2"><a class="reference internal" href="operations.html#core-actions">Core Actions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="operations.html#text-syntax">Text Syntax</a></li>
+<li class="toctree-l2"><a class="reference internal" href="operations.html#python-builders">Python Builders</a></li>
+<li class="toctree-l2"><a class="reference internal" href="operations.html#validation">Validation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="operations.html#result-envelope">Result Envelope</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="inventory.html">Inventory and Targets</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="inventory.html#default-inventory">Default Inventory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="inventory.html#record-shape">Record Shape</a></li>
+<li class="toctree-l2"><a class="reference internal" href="inventory.html#target-resolution">Target Resolution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="inventory.html#targetdevice">TargetDevice</a></li>
+<li class="toctree-l2"><a class="reference internal" href="inventory.html#supported-target-type">Supported Target Type</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="adapters.html">Adapters</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="adapters.html#routeros-rest">RouterOS REST</a></li>
+<li class="toctree-l2"><a class="reference internal" href="adapters.html#ubiquiti-airos-plans">Ubiquiti airOS Plans</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#setup">Setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#list-neighbours">List Neighbours</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#create-firewall-filter">Create Firewall Filter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#list-firewall-filters">List Firewall Filters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#list-connected-routes">List Connected Routes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#list-slave-interfaces">List Slave Interfaces</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#add-bridge-port">Add Bridge Port</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#create-vlan-interface">Create VLAN Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#update-vlan-id">Update VLAN ID</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#graph-rx-errors">Graph RX Errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#netflow-envelope-reconciliation">NetFlow Envelope Reconciliation</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="flowcollector.html">Flow Collector</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="flowcollector.html#build">Build</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flowcollector.html#run">Run</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flowcollector.html#routeros-export-check">RouterOS Export Check</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flowcollector.html#output-shape">Output Shape</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flowcollector.html#reconcile-collector-output">Reconcile Collector Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flowcollector.html#endpoint-classification">Endpoint Classification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flowcollector.html#policy-layer">Policy Layer</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="topology-preflight.html">Topology, Reconciliation, and Preflight</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="topology-preflight.html#device-records">Device Records</a></li>
+<li class="toctree-l2"><a class="reference internal" href="topology-preflight.html#device-reconciliation">Device Reconciliation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="topology-preflight.html#attachment-records">Attachment Records</a></li>
+<li class="toctree-l2"><a class="reference internal" href="topology-preflight.html#attachment-reconciliation">Attachment Reconciliation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="topology-preflight.html#interface-state-records">Interface State Records</a></li>
+<li class="toctree-l2"><a class="reference internal" href="topology-preflight.html#preflight-an-interface-operation">Preflight an Interface Operation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="topology-preflight.html#live-routeros-preflight">Live RouterOS Preflight</a></li>
+<li class="toctree-l2"><a class="reference internal" href="topology-preflight.html#flow-observations">Flow Observations</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#install">Install</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#validate">Validate</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#parse">Parse</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#default-command">Default Command</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#module-form">Module Form</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="syntax-v0.html">Syntax v0 Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="syntax-v0.html#thesis">Thesis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="syntax-v0.html#architecture">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="syntax-v0.html#operation-format">Operation Format</a></li>
+<li class="toctree-l2"><a class="reference internal" href="syntax-v0.html#core-actions">Core Actions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="syntax-v0.html#value-literals">Value Literals</a></li>
+<li class="toctree-l2"><a class="reference internal" href="syntax-v0.html#capability-states">Capability States</a></li>
+<li class="toctree-l2"><a class="reference internal" href="syntax-v0.html#result-envelope">Result Envelope</a></li>
+<li class="toctree-l2"><a class="reference internal" href="syntax-v0.html#adapter-contract">Adapter Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="syntax-v0.html#safety-model">Safety Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="syntax-v0.html#open-questions">Open Questions</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api.html#import-path-overview">Import Path Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#core-entry-points">Core Entry Points</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#operation-construction">Operation Construction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#operation-objects">Operation Objects</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#parsing-and-validation">Parsing and Validation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#results">Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#targets-and-inventory">Targets and Inventory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#reconciliation">Reconciliation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#topology-and-preflight">Topology and Preflight</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#flow-observations">Flow Observations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#graphing-and-exporters">Graphing and Exporters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#routeros-adapter">RouterOS Adapter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#airos-adapter">airOS Adapter</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="#">network-lang</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="operations.html">Operation Model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inventory.html">Inventory and Targets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="adapters.html">Adapters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="flowcollector.html">Flow Collector</a></li>
+<li class="toctree-l1"><a class="reference internal" href="topology-preflight.html">Topology, Reconciliation, and Preflight</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="syntax-v0.html">Syntax v0 Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="#">Documentation overview</a><ul>
+      <li>Next: <a href="getting-started.html" title="next chapter">Getting Started</a></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Unified Network Syntax contributors.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 7.3.7</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+      |
+      <a href="_sources/index.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Flow Collector &#8212; network-lang 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=12dfc556" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=9a2dae69"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Topology, Reconciliation, and Preflight" href="topology-preflight.html" />
+    <link rel="prev" title="Examples" href="examples.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="flow-collector">
+<h1>Flow Collector<a class="headerlink" href="#flow-collector" title="Link to this heading">¶</a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">flowcollector</span></code> is a lightweight Go daemon for extracting basic NetFlow data
+into JSONL device records. It does not analyze, enrich, or score traffic. Its
+job is only to receive flow packets, decode the default fields, and emit records
+that the Python reconciliation layer can consume.</p>
+<p>The first implementation supports NetFlow v5 over UDP.</p>
+<section id="build">
+<h2>Build<a class="headerlink" href="#build" title="Link to this heading">¶</a></h2>
+<p>From the repository root:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>go<span class="w"> </span>build<span class="w"> </span>./cmd/flowcollector
+</pre></div>
+</div>
+</section>
+<section id="run">
+<h2>Run<a class="headerlink" href="#run" title="Link to this heading">¶</a></h2>
+<p>Listen on UDP/2055 and write source endpoint device records to stdout:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>./flowcollector<span class="w"> </span>-listen<span class="w"> </span>:2055
+</pre></div>
+</div>
+<p>While testing, enable debug and status logs:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>./flowcollector<span class="w"> </span>-listen<span class="w"> </span>:2055<span class="w"> </span>-endpoint<span class="w"> </span>both<span class="w"> </span>-output<span class="w"> </span>flows.jsonl<span class="w"> </span>-debug<span class="w"> </span>-status<span class="w"> </span>10s
+</pre></div>
+</div>
+<p>Write both source and destination endpoint records to a JSONL file:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>./flowcollector<span class="w"> </span>-listen<span class="w"> </span>:2055<span class="w"> </span>-endpoint<span class="w"> </span>both<span class="w"> </span>-output<span class="w"> </span>flows.jsonl
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">-endpoint</span></code> option accepts <code class="docutils literal notranslate"><span class="pre">src</span></code>, <code class="docutils literal notranslate"><span class="pre">dst</span></code>, or <code class="docutils literal notranslate"><span class="pre">both</span></code>.</p>
+</section>
+<section id="routeros-export-check">
+<h2>RouterOS Export Check<a class="headerlink" href="#routeros-export-check" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">/ip</span> <span class="pre">traffic-flow</span> <span class="pre">monitor</span></code> shows the local RouterOS flow cache. It does not
+prove that RouterOS is exporting UDP packets to the collector. Make sure a
+target exists and uses NetFlow v5:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/ip traffic-flow set enabled=yes interfaces=all
+/ip traffic-flow target add address=&lt;collector-ip&gt; port=2055 version=5
+/ip traffic-flow target print detail
+</pre></div>
+</div>
+<p>If <code class="docutils literal notranslate"><span class="pre">-debug</span></code> does not print <code class="docutils literal notranslate"><span class="pre">rx</span> <span class="pre">...</span> <span class="pre">version=5</span></code> lines, the collector is not
+receiving NetFlow v5 datagrams. Check the target address, firewall rules, route
+to the collector, and that the collector is listening on the host address the
+router can reach.</p>
+</section>
+<section id="output-shape">
+<h2>Output Shape<a class="headerlink" href="#output-shape" title="Link to this heading">¶</a></h2>
+<p>Each line is a <code class="docutils literal notranslate"><span class="pre">DeviceRecord</span></code>-shaped JSON object:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;host&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;10.20.30.45&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;mac&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;serial&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;vendor&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;platform&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;source&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;netflow:v5&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;identifiers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">  </span><span class="nt">&quot;metadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;exporter&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;192.0.2.10&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;direction&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;src&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;peer_host&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;8.8.8.8&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;src_host&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;10.20.30.45&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;dst_host&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;8.8.8.8&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;src_port&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">54321</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;dst_port&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">53</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;protocol&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;bytes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">12000</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;packets&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">40</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;input_interface_index&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;output_interface_index&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="reconcile-collector-output">
+<h2>Reconcile Collector Output<a class="headerlink" href="#reconcile-collector-output" title="Link to this heading">¶</a></h2>
+<p>Because the collector emits <code class="docutils literal notranslate"><span class="pre">DeviceRecord</span></code>-shaped rows, the client side stays
+small. The loader classifies flow endpoints first, so public peers and exporters
+do not pollute source-of-truth reconciliation:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">network_lang</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">DeviceRecord</span><span class="p">,</span>
+    <span class="n">apply_flow_recon_policy</span><span class="p">,</span>
+    <span class="n">load_flow_devices</span><span class="p">,</span>
+    <span class="n">load_inventory</span><span class="p">,</span>
+    <span class="n">reconcile_devices</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">inventory</span> <span class="o">=</span> <span class="n">load_inventory</span><span class="p">()</span>
+<span class="n">expected</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">DeviceRecord</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">),</span>
+        <span class="n">host</span><span class="o">=</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;interfaces&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;ip_address&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span>
+        <span class="n">source</span><span class="o">=</span><span class="s2">&quot;inventory&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">inventory</span>
+    <span class="k">if</span> <span class="s2">&quot;CPE-devices&quot;</span> <span class="ow">in</span> <span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;groups&quot;</span><span class="p">,</span> <span class="p">[])</span>
+<span class="p">]</span>
+<span class="n">infrastructure_hosts</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">record</span><span class="p">[</span><span class="s2">&quot;interfaces&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;ip_address&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">inventory</span>
+    <span class="k">if</span> <span class="s2">&quot;CPE-devices&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;groups&quot;</span><span class="p">,</span> <span class="p">[])</span>
+<span class="p">]</span>
+<span class="n">observed</span> <span class="o">=</span> <span class="n">load_flow_devices</span><span class="p">(</span>
+    <span class="s2">&quot;flows.jsonl&quot;</span><span class="p">,</span>
+    <span class="n">scope</span><span class="o">=</span><span class="s2">&quot;all&quot;</span><span class="p">,</span>
+    <span class="n">customer_hosts</span><span class="o">=</span><span class="p">[</span><span class="n">device</span><span class="o">.</span><span class="n">host</span> <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="n">expected</span> <span class="k">if</span> <span class="n">device</span><span class="o">.</span><span class="n">host</span><span class="p">],</span>
+    <span class="n">known_infrastructure</span><span class="o">=</span><span class="n">infrastructure_hosts</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">report</span> <span class="o">=</span> <span class="n">apply_flow_recon_policy</span><span class="p">(</span><span class="n">reconcile_devices</span><span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">observed</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="o">.</span><span class="n">to_text</span><span class="p">())</span>
+<span class="k">raise</span> <span class="ne">SystemExit</span><span class="p">(</span><span class="n">report</span><span class="o">.</span><span class="n">exit_code</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The report exits with status <code class="docutils literal notranslate"><span class="pre">1</span></code> when unknown internal hosts are present, and
+<code class="docutils literal notranslate"><span class="pre">0</span></code> when there are no unknown internal hosts.</p>
+<p>That produces an operator-facing summary:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Unknown internal hosts observed: 0
+Matched customer endpoints: 1
+Infrastructure observed: 1
+External peers ignored: 9
+
+Matched customer endpoints:
+- 10.20.30.45 score=95 source=netflow:v5 exporter=192.0.2.10 interface=8
+
+Infrastructure observed:
+- 192.0.2.11 source=netflow:v5 exporter=192.0.2.10 interface=8
+</pre></div>
+</div>
+<p>Known infrastructure can be tagged so it does not receive the
+<code class="docutils literal notranslate"><span class="pre">unknown_internal</span></code> flow class:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">observed</span> <span class="o">=</span> <span class="n">load_flow_devices</span><span class="p">(</span>
+    <span class="s2">&quot;flows.jsonl&quot;</span><span class="p">,</span>
+    <span class="n">scope</span><span class="o">=</span><span class="s2">&quot;internal&quot;</span><span class="p">,</span>
+    <span class="n">known_infrastructure</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;192.0.2.11&quot;</span><span class="p">,),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="endpoint-classification">
+<h2>Endpoint Classification<a class="headerlink" href="#endpoint-classification" title="Link to this heading">¶</a></h2>
+<p>Flow endpoints are classified before reconciliation:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>public_external
+private_internal
+exporter
+known_infrastructure
+customer_endpoint
+unknown_internal
+ignored_peer
+</pre></div>
+</div>
+<p>The default <code class="docutils literal notranslate"><span class="pre">scope=&quot;internal&quot;</span></code> includes private/internal endpoints and
+excludes public external peers, ignored peers, and exporters.</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">scope=&quot;external&quot;</span></code> when you want to inspect public peers separately:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">external_peers</span> <span class="o">=</span> <span class="n">load_flow_devices</span><span class="p">(</span><span class="s2">&quot;flows.jsonl&quot;</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="s2">&quot;external&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Set <code class="docutils literal notranslate"><span class="pre">include_external_peers=True</span></code> when you intentionally want public peers in
+the same observed set as internal endpoints:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">observed</span> <span class="o">=</span> <span class="n">load_flow_devices</span><span class="p">(</span>
+    <span class="s2">&quot;flows.jsonl&quot;</span><span class="p">,</span>
+    <span class="n">scope</span><span class="o">=</span><span class="s2">&quot;internal&quot;</span><span class="p">,</span>
+    <span class="n">include_external_peers</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">scope=&quot;ignored&quot;</span></code> when you need to inspect broadcast, multicast,
+link-local, or otherwise non-actionable endpoints:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ignored_peers</span> <span class="o">=</span> <span class="n">load_flow_devices</span><span class="p">(</span><span class="s2">&quot;flows.jsonl&quot;</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="s2">&quot;ignored&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="policy-layer">
+<h2>Policy Layer<a class="headerlink" href="#policy-layer" title="Link to this heading">¶</a></h2>
+<p>The default flow reconciliation policy maps classes to actions:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">FLOW_RECON_POLICY</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;customer_endpoint&quot;</span><span class="p">:</span> <span class="s2">&quot;match_or_score&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;unknown_internal&quot;</span><span class="p">:</span> <span class="s2">&quot;report&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;private_internal&quot;</span><span class="p">:</span> <span class="s2">&quot;report&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;public_external&quot;</span><span class="p">:</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ignored_peer&quot;</span><span class="p">:</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;exporter&quot;</span><span class="p">:</span> <span class="s2">&quot;infrastructure&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;known_infrastructure&quot;</span><span class="p">:</span> <span class="s2">&quot;infrastructure&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Pass a custom policy to <code class="docutils literal notranslate"><span class="pre">apply_flow_recon_policy</span></code> when a deployment wants to
+promote or suppress a class differently.</p>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">network-lang</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="operations.html">Operation Model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inventory.html">Inventory and Targets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="adapters.html">Adapters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">Examples</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Flow Collector</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#build">Build</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#run">Run</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#routeros-export-check">RouterOS Export Check</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#output-shape">Output Shape</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#reconcile-collector-output">Reconcile Collector Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#endpoint-classification">Endpoint Classification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#policy-layer">Policy Layer</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="topology-preflight.html">Topology, Reconciliation, and Preflight</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="syntax-v0.html">Syntax v0 Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="examples.html" title="previous chapter">Examples</a></li>
+      <li>Next: <a href="topology-preflight.html" title="next chapter">Topology, Reconciliation, and Preflight</a></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Unified Network Syntax contributors.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 7.3.7</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+      |
+      <a href="_sources/flowcollector.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

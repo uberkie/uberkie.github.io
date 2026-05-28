@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Syntax v0 Reference &#8212; network-lang 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=12dfc556" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=9a2dae69"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="API Reference" href="api.html" />
+    <link rel="prev" title="CLI" href="cli.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="syntax-v0-reference">
+<h1>Syntax v0 Reference<a class="headerlink" href="#syntax-v0-reference" title="Link to this heading">¶</a></h1>
+<p>This page captures the first draft of Unified Network Syntax. It is
+intentionally small: enough to test the idea without locking the project into a
+large framework too early.</p>
+<section id="thesis">
+<h2>Thesis<a class="headerlink" href="#thesis" title="Link to this heading">¶</a></h2>
+<p>Basic network management operations are already present across many interfaces.
+The problem is not whether devices can be controlled. The problem is that every
+interface expresses control differently.</p>
+<p>Unified Network Syntax normalizes intent above the transport layer.</p>
+</section>
+<section id="architecture">
+<h2>Architecture<a class="headerlink" href="#architecture" title="Link to this heading">¶</a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Application</span><span class="o">/</span><span class="n">library</span> <span class="n">call</span> <span class="ow">or</span> <span class="o">.</span><span class="n">uns</span> <span class="n">text</span>
+  <span class="o">-&gt;</span> <span class="n">operation</span> <span class="n">parser</span>
+  <span class="o">-&gt;</span> <span class="n">capability</span> <span class="n">resolver</span>
+  <span class="o">-&gt;</span> <span class="n">policy</span> <span class="n">guard</span>
+  <span class="o">-&gt;</span> <span class="n">adapter</span> <span class="n">selector</span>
+  <span class="o">-&gt;</span> <span class="n">executor</span>
+  <span class="o">-&gt;</span> <span class="n">normalizer</span>
+  <span class="o">-&gt;</span> <span class="n">result</span> <span class="n">envelope</span>
+</pre></div>
+</div>
+</section>
+<section id="operation-format">
+<h2>Operation Format<a class="headerlink" href="#operation-format" title="Link to this heading">¶</a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">network</span><span class="o">.&lt;</span><span class="n">resource</span><span class="o">-</span><span class="n">path</span><span class="o">&gt;.&lt;</span><span class="n">action</span><span class="o">&gt;</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="s2">&quot;device-or-selector&quot;</span><span class="p">,</span> <span class="n">params</span><span class="o">...</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Where:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">network</span></code> is the root namespace.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">resource-path</span></code> is one or more dotted identifiers for the thing being
+operated on.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">action</span></code> is the requested operation.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">target</span></code> identifies a device, group, inventory selector, or connection
+profile.</p></li>
+<li><p>Additional keyword arguments contain typed input for the adapter.</p></li>
+</ul>
+</section>
+<section id="core-actions">
+<h2>Core Actions<a class="headerlink" href="#core-actions" title="Link to this heading">¶</a></h2>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>list      read many resources
+get       read one resource
+create    create a resource
+update    modify a resource
+delete    remove a resource
+enable    enable an existing resource
+disable   disable an existing resource
+observe   run an active but non-mutating observation
+run       execute a bounded operational action
+backup    export or snapshot config/state
+diff      compare desired and actual state
+validate  check whether an operation could run
+</pre></div>
+</div>
+</section>
+<section id="value-literals">
+<h2>Value Literals<a class="headerlink" href="#value-literals" title="Link to this heading">¶</a></h2>
+<p>The reference parser currently accepts:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>&quot;string&quot; or &#39;string&#39;
+123, -123, 12.3
+true, false, null
+[value, value]
+{ key=value, key=value }
+</pre></div>
+</div>
+<p>Object keys are bare identifiers. Operation arguments and object fields both
+use <code class="docutils literal notranslate"><span class="pre">key=value</span></code> syntax.</p>
+</section>
+<section id="capability-states">
+<h2>Capability States<a class="headerlink" href="#capability-states" title="Link to this heading">¶</a></h2>
+<p>Every operation should resolve to one of these states before execution:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>supported
+unsupported
+supported_via_fallback
+read_only
+requires_confirmation
+requires_vendor_adapter
+partial
+unknown
+</pre></div>
+</div>
+<p>The system should fail before execution if a required capability is missing.</p>
+</section>
+<section id="result-envelope">
+<h2>Result Envelope<a class="headerlink" href="#result-envelope" title="Link to this heading">¶</a></h2>
+<p>Every adapter returns the same top-level result shape:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;ok&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;operation&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;network.neighbors.list&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;target&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tower-router-01&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;capability&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;supported_via_fallback&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;adapter&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;vendor&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;mikrotik&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;transport&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ssh&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;routeros-ssh-neighbors&quot;</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;data&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">  </span><span class="nt">&quot;warnings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;raw_ref&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;artifact://runs/2026-05-26/abc123/raw.txt&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Failures use the same shape with <code class="docutils literal notranslate"><span class="pre">ok=false</span></code> and a structured error.</p>
+</section>
+<section id="adapter-contract">
+<h2>Adapter Contract<a class="headerlink" href="#adapter-contract" title="Link to this heading">¶</a></h2>
+<p>Adapters translate the operation into the best supported backend:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>MikroTik API       -&gt; RouterOS API sentence/path
+MikroTik SSH       -&gt; CLI command plus parser
+Cisco NETCONF      -&gt; YANG/XML edit-config or get
+RESTCONF device    -&gt; HTTP request against YANG-modeled resource
+SNMP device        -&gt; GET/SET OID where supported
+Ubiquiti airOS     -&gt; SSH or HTTP parser fallback
+Linux host         -&gt; iproute2/nftables/system command wrapper
+Ansible            -&gt; bounded executor backend, not top-level syntax
+</pre></div>
+</div>
+<p>Each adapter must provide capability probes, input schemas, a transport
+implementation, output normalizers, error mapping, and a risk level.</p>
+</section>
+<section id="safety-model">
+<h2>Safety Model<a class="headerlink" href="#safety-model" title="Link to this heading">¶</a></h2>
+<p>Operations are grouped by risk:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>read        no state change
+observe     active but non-mutating probe
+write       modifies config or state
+destructive deletes, disables, resets, or interrupts service
+secret      touches credentials, keys, or private config
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">write</span></code>, <code class="docutils literal notranslate"><span class="pre">destructive</span></code>, and <code class="docutils literal notranslate"><span class="pre">secret</span></code> operations require explicit policy
+checks.</p>
+</section>
+<section id="open-questions">
+<h2>Open Questions<a class="headerlink" href="#open-questions" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Should the syntax be primarily function-like, JSON/YAML, or both?</p></li>
+<li><p>Should <code class="docutils literal notranslate"><span class="pre">target</span></code> be a single string, inventory selector, or typed object?</p></li>
+<li><p>How much should the project reuse existing YANG models?</p></li>
+<li><p>Should the first prototype target one vendor first, such as MikroTik?</p></li>
+<li><p>Should adapters be local plugins, remote tools, or both?</p></li>
+</ul>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">network-lang</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="operations.html">Operation Model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inventory.html">Inventory and Targets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="adapters.html">Adapters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="flowcollector.html">Flow Collector</a></li>
+<li class="toctree-l1"><a class="reference internal" href="topology-preflight.html">Topology, Reconciliation, and Preflight</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Syntax v0 Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#thesis">Thesis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#architecture">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#operation-format">Operation Format</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#core-actions">Core Actions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#value-literals">Value Literals</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#capability-states">Capability States</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#result-envelope">Result Envelope</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#adapter-contract">Adapter Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#safety-model">Safety Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#open-questions">Open Questions</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="cli.html" title="previous chapter">CLI</a></li>
+      <li>Next: <a href="api.html" title="next chapter">API Reference</a></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Unified Network Syntax contributors.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 7.3.7</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+      |
+      <a href="_sources/syntax-v0.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

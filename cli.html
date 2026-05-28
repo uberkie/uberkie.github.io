@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>CLI &#8212; network-lang 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=12dfc556" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=9a2dae69"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Syntax v0 Reference" href="syntax-v0.html" />
+    <link rel="prev" title="Topology, Reconciliation, and Preflight" href="topology-preflight.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="cli">
+<h1>CLI<a class="headerlink" href="#cli" title="Link to this heading">¶</a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">uns</span></code> command is a thin wrapper around the parser and validator. It is
+useful for local checks, examples, and CI jobs that only need to inspect
+operation files.</p>
+<section id="install">
+<h2>Install<a class="headerlink" href="#install" title="Link to this heading">¶</a></h2>
+<p>Install the package in editable mode:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
+</pre></div>
+</div>
+<p>This exposes the <code class="docutils literal notranslate"><span class="pre">uns</span></code> command from <code class="docutils literal notranslate"><span class="pre">network_lang.cli:main</span></code>.</p>
+</section>
+<section id="validate">
+<h2>Validate<a class="headerlink" href="#validate" title="Link to this heading">¶</a></h2>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>uns<span class="w"> </span>validate<span class="w"> </span>examples/operations.uns
+</pre></div>
+</div>
+<p>Successful validation prints:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>OK examples/operations.uns (10 operations)
+</pre></div>
+</div>
+<p>Validation errors are printed with source labels and exit status <code class="docutils literal notranslate"><span class="pre">1</span></code>.</p>
+</section>
+<section id="parse">
+<h2>Parse<a class="headerlink" href="#parse" title="Link to this heading">¶</a></h2>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>uns<span class="w"> </span>parse<span class="w"> </span>examples/operations.uns
+</pre></div>
+</div>
+<p>This prints parsed operations as JSON using <code class="docutils literal notranslate"><span class="pre">Operation.to_dict()</span></code>.</p>
+</section>
+<section id="default-command">
+<h2>Default Command<a class="headerlink" href="#default-command" title="Link to this heading">¶</a></h2>
+<p>If the first argument is a file path rather than a command, <code class="docutils literal notranslate"><span class="pre">uns</span></code> treats it
+as a validation request:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>uns<span class="w"> </span>examples/operations.uns
+</pre></div>
+</div>
+</section>
+<section id="module-form">
+<h2>Module Form<a class="headerlink" href="#module-form" title="Link to this heading">¶</a></h2>
+<p>The package can also be run as a module:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>network_lang<span class="w"> </span>validate<span class="w"> </span>examples/operations.uns
+python3<span class="w"> </span>-m<span class="w"> </span>network_lang<span class="w"> </span>parse<span class="w"> </span>examples/operations.uns
+</pre></div>
+</div>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">network-lang</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="operations.html">Operation Model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inventory.html">Inventory and Targets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="adapters.html">Adapters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="flowcollector.html">Flow Collector</a></li>
+<li class="toctree-l1"><a class="reference internal" href="topology-preflight.html">Topology, Reconciliation, and Preflight</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">CLI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#install">Install</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#validate">Validate</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parse">Parse</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#default-command">Default Command</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#module-form">Module Form</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="syntax-v0.html">Syntax v0 Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="topology-preflight.html" title="previous chapter">Topology, Reconciliation, and Preflight</a></li>
+      <li>Next: <a href="syntax-v0.html" title="next chapter">Syntax v0 Reference</a></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Unified Network Syntax contributors.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 7.3.7</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+      |
+      <a href="_sources/cli.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
